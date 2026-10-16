@@ -28,7 +28,8 @@ read-only. UI and docs are German.*
 | Mitschnitt | `knxlens -g <IP> monitor [--duration s]` | Gruppentelegramme in SQLite |
 | Oberfläche | `knxlens serve --products <datei>` | Geräte, Parameter, GAs benennen, Live-Verkehr |
 | Inventar | `knxlens report -o inventar.md` | Markdown ohne Referenzprojekt |
-| ETS-Export | Oberfläche → *ETS-Import (XML)* / `knxlens export-knxproj …` | GA-Import, `.knxproj` |
+| ETS-Export | Oberfläche → *ETS-Import (XML)* | Gruppenadressen-Import für die ETS |
+| Projektdatei | `knxlens export-knxproj …` | `.knxproj` (unsigniert, nicht ETS-importierbar) |
 
 Unterstützte Geräte: System 7 und System B (Masken 0x07xx) an echten Geräten geprüft;
 BCU1/BCU2 (0x001x/0x002x, z. B. ältere Tastsensoren) nach Spezifikation implementiert,
@@ -73,7 +74,10 @@ Kommentare, Parameter ohne Speicherort im Gerät. Die Oberfläche hilft beim Erg
 ## Grenzen
 
 - Der `.knxproj`-Export ist **unsigniert** (die ETS signiert Projekte mit ihrer Lizenz;
-  das wird bewusst nicht nachgebildet). Ob die ETS ihn importiert, ist noch ungetestet.
+  das wird bewusst nicht nachgebildet). **Die ETS6 lehnt ihn deshalb ab** („Projektdatei
+  hat keine gültige Signatur“). Er taugt für Werkzeuge, die den Inhalt lesen
+  (xknxproject-Rückprüfung), nicht für die ETS. Für die ETS: GA-Import (XML) plus
+  Geräte von Hand einfügen, Verknüpfungen und Parameter nach dem knxlens-Inventar.
 - Welche Objektvariante aktiv ist, folgt aus den Parametern; wo das nicht eindeutig ist,
   wird geschätzt und markiert.
 - KNX Secure wird nicht unterstützt.

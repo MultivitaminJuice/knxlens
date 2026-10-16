@@ -137,7 +137,10 @@ Aktoren auf eibmarkt.de. **Jeder Download nur nach Freigabe (Datei, Quelle, Grö
    Gruppenadressen, Räume). **Unsigniert** – die ETS-Projektsignatur (Lizenzzertifikat)
    wird bewusst nicht nachgebildet. Rückprüfung mit xknxproject gegen Original:
    40/40 Geräte, Produkt und Applikation, 588/588 Verknüpfungen, 452 Parameterwerte
-   identisch. 125 Objekte mit geschätzter Variante. **ETS-Import ungetestet.**
+   identisch. 125 Objekte mit geschätzter Variante.
+   **ETS6-Import getestet (16.10.2026): abgelehnt – „Projektdatei hat keine gültige
+   Signatur“.** Weg in die ETS damit nur über GA-XML-Import + manuelles Einfügen der
+   Geräte; die Projektsignatur wird nicht nachgebildet.
    ⚠ Ein rekonstruiertes Projekt nie ungeprüft auf Geräte herunterladen: unsichere
    und geschätzte Werte würden dabei ins Gerät geschrieben.
 
@@ -171,7 +174,7 @@ Noch offen: Live-Monitor (braucht Phase 4), Raumstruktur als eigene Ebene.
    nie geschrieben); 8 unerklärte Abweichungen (5× MDT-Dimmer „Einschaltverhalten Tag“,
    2× „Szenen überschreiben“, 1× 1.1.255). ETS-only-Schalter aus versteckten
    Parametern erschlossen: 378/380 richtig. Nebenbei: aktive Objektvarianten.
-5. **M5 Export:** GA-Import, dann `.knxproj`-Versuch. ✅ gebaut, ETS-Test durch den Nutzer offen.
+5. **M5 Export:** GA-Import, dann `.knxproj`-Versuch. ✅ gebaut; `.knxproj` von ETS6 abgelehnt (Signatur), GA-XML-Import-Test offen.
 6. **M6 Raspberry Pi:** Dauer-Mitschnitt vor Ort.
 
 ## Konsequenz Zielanlage = BCU1/BCU2
