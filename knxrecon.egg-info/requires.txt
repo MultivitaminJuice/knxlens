@@ -1,0 +1,5 @@
+xknx<5,>=4.0
+xknxproject>=3.8
+
+[dev]
+pytest

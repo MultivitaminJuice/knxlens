@@ -11,6 +11,7 @@ am Ende ein importierbares `.knxproj` erzeugen. **Ausschließlich lesend.**
 | Interface | Gira X1, (LAN-IP), PA 1.1.1 | Eibmarkt IP-Interface, IP offen |
 | Tunnel | UDP+TCP, Slots 1.1.4/1.1.5 frei, 1.1.3 = HA | unbekannt |
 | HA | ja, KNX-Integration (Tunnel) | nein |
+| Geräte | MDT, Steinel, Jung, B.E.G. … (System 7/B) | v. a. Gira Tastsensoren mit RTR (ca. 2000), Eibmarkt-Aktoren, vermutl. Gira BWM + Gira Wetterstation → **BCU1/BCU2** |
 | Referenz | Original-`.knxproj` vorhanden | keins (das ist der Anlass) |
 
 Die Testanlage ist der Prüfstand: Jede Phase wird gegen das Original-Projekt
@@ -119,6 +120,16 @@ rekonstruierbaren Teile), Live-Monitor, Scan-Fortschritt, Abgleich-Ansicht.
 4. **M4 Parameter:** Produktdaten-Dekodierung, gegen Referenz geprüft.
 5. **M5 Export:** GA-Import, dann `.knxproj`-Versuch.
 6. **M6 Raspberry Pi:** Dauer-Mitschnitt vor Ort.
+
+## Konsequenz Zielanlage = BCU1/BCU2
+
+Die Testanlage prüft nur den System-7/B-Pfad. Für BCU1/BCU2 (feste Speicherkarte,
+keine Properties) eigener Lesepfad nach Spezifikation:
+0x0104 Hersteller, 0x0105–0x0106 Gerätetyp, 0x0107 Version, 0x0111 Zeiger
+Assoziationstabelle, 0x0112 Zeiger Gruppenobjekttabelle, ab 0x0116 Adresstabelle
+(1 Byte Länge, eigene PA, dann GAs). Gegenprobe über Gira-Produktdaten aus dem
+Katalog und Telegrammmitschnitt; vorab im Speicher gezielt ein bekanntes Gerät
+prüfen (z. B. einen Taster mit bekannter Funktion).
 
 ## Risiken
 
