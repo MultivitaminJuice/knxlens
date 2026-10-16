@@ -22,7 +22,9 @@ def test_pages_render(client):
         r = client.get(url)
         assert r.status_code == 200, url
     assert "M-0008_A-2032-12" in client.get("/").text
-    assert "KLSÜ-" in client.get(f"/device/{PA}").text
+    page = client.get(f"/device/{PA}").text
+    assert "KLSÜ-" in page
+    assert f"<title>{PA} · KNX-Rekonstruktion</title>" in page
     assert client.get("/device/9.9.9").status_code == 404
     assert client.get("/compare").status_code == 404  # ohne Referenz
 
@@ -35,6 +37,15 @@ def test_note_roundtrip(client):
     assert "1/0/1;Flur Licht;1.1.5/0" in csv
     client.post("/api/note", json={"kind": "ga", "key": "1/0/1", "field": "name", "value": ""})
     assert 'value="Flur Licht"' not in client.get("/gas").text
+
+
+def test_ets_export(client):
+    client.post("/api/note", json={"kind": "ga", "key": "1/0/1", "field": "name", "value": "Flur"})
+    client.post("/api/note", json={"kind": "range", "key": "1", "field": "name", "value": "Licht"})
+    xml = client.get("/export/gruppenadressen-ets.xml").text
+    assert 'xmlns="http://knx.org/xml/ga-export/01"' in xml
+    assert '<GroupRange Name="Licht" RangeStart="2048" RangeEnd="4095">' in xml
+    assert '<GroupAddress Name="Flur" Address="1/0/1"' in xml
 
 
 def test_note_rejects_unknown_fields(client):

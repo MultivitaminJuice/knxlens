@@ -68,4 +68,35 @@
   </tbody>
 </table>
 </div>
+<h2>Parameter</h2>
+{% if not ev %}
+<p class="muted">{% if app %}Parameterspeicher noch nicht gelesen – <span class="mono">knxrecon read-params {{ d.pa }} --products …</span>{% else %}Ohne Produktdaten nicht dekodierbar.{% endif %}</p>
+{% else %}
+{% set changed = ev.values|rejectattr('internal')|selectattr('from_device')|rejectattr('is_default')|list %}
+<p class="sub">{{ changed|length }} vom Standard abweichende Einstellungen ·
+  <label><input type="checkbox" data-only-changed> nur geänderte zeigen</label>
+  {% if ev.inferred %} · {{ ev.inferred|length }} ETS-Schalter aus dem Speicher erschlossen{% endif %}
+  {% if ev.unreadable %} · <span class="warn">nicht gelesen: {{ ev.unreadable|join(', ') }}</span>{% endif %}
+</p>
+{% for path, values in groups.items() %}
+<details class="params" {% if loop.first %}open{% endif %}>
+  <summary>{{ path|join(' › ') or 'Allgemein' }} <span class="muted">({{ values|length }})</span></summary>
+  <div class="table-wrap"><table>
+    <tbody>
+    {% for v in values %}
+      <tr class="{{ 'changed' if v.from_device and not v.is_default else 'default' }}">
+        <td>{{ v.text }}</td>
+        <td class="{{ 'muted' if not v.from_device }}">{{ v.display }}
+          {% if not v.from_device %}<span class="chip">nur ETS, Standardwert</span>
+          {% elif v.untouched %}<span class="chip warn" title="Im Gerät steht noch das Standard-Speicherbild der Produktdatei – die ETS hat diesen Wert vermutlich nie geschrieben">unsicher (Standardbild)</span>
+          {% elif v.uncertain %}<span class="chip warn" title="Sichtbarkeit hängt an einem ETS-Schalter ohne Speicherort">abgeleitet</span>{% endif %}
+          {% if v.from_device and not v.is_default %}<span class="chip">geändert</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</details>
+{% endfor %}
+{% endif %}
 {% endblock %}

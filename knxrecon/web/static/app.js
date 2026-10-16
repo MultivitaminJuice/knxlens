@@ -82,3 +82,9 @@ if (live) {
   };
   poll();
 }
+
+// Geräteseite: nur vom Standard abweichende Parameter zeigen
+document.querySelector("[data-only-changed]")?.addEventListener("change", (ev) => {
+  document.body.classList.toggle("only-changed", ev.target.checked);
+  if (ev.target.checked) document.querySelectorAll("details.params").forEach((d) => (d.open = true));
+});

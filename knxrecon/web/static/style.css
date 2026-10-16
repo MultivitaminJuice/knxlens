@@ -102,3 +102,9 @@ dl.meta dd { margin: 0; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
 .nowrap { white-space: nowrap; }
 .clip { display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+tr.range td { background: var(--bg); }
+tr.range input.note { font-weight: 600; }
+details.params { margin: 6px 0; }
+details.params summary { cursor: pointer; padding: 4px 0; font-weight: 500; }
+tr.changed td:first-child { font-weight: 600; }
+body.only-changed tr.default { display: none; }

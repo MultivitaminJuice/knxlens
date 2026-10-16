@@ -75,6 +75,28 @@ def cmd_report(args: argparse.Namespace) -> None:
         print(text)
 
 
+async def cmd_read_params(args: argparse.Namespace) -> None:
+    from . import catalog, params
+
+    store = Store(args.db)
+    cat = catalog.Catalog()
+    for path in args.products:
+        cat.add(path)
+    devices = {d.pa: d for d in _decoded(store)}
+    targets = args.pa or sorted(devices, key=lambda pa: [int(x) for x in pa.split(".")])
+    async with bus.connect(args.gateway) as xknx:
+        store.start_session(args.gateway, str(xknx.current_address), f"read-params {len(targets)}")
+        for pa in targets:
+            app = cat.lookup(devices[pa]) if pa in devices else None
+            if app is None:
+                print(f"{pa}: keine Produktdaten")
+                continue
+            ap = params.AppParams(app)
+            async with xknx.management.connection(IndividualAddress(pa)) as conn:
+                summary = await params.read(device.Reader(conn, store), ap)
+            print(pa, json.dumps(summary, ensure_ascii=False))
+
+
 async def cmd_monitor(args: argparse.Namespace) -> None:
     await monitor.run(args.gateway, Store(args.db), args.duration)
 
@@ -122,6 +144,11 @@ def main() -> None:
     s = sub.add_parser("report", help="Inventar als Markdown (ohne Referenz)")
     s.add_argument("-o", "--out")
     s.set_defaults(func=cmd_report)
+
+    s = sub.add_parser("read-params", help="Parameterspeicher lesen (braucht Produktdaten)")
+    s.add_argument("pa", nargs="*")
+    s.add_argument("--products", action="append", required=True)
+    s.set_defaults(func=cmd_read_params)
 
     s = sub.add_parser("monitor", help="Gruppentelegramme passiv mitschneiden (sendet nichts)")
     s.add_argument("--duration", type=float, help="Sekunden; ohne Angabe bis Strg-C")

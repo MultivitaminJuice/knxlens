@@ -127,7 +127,9 @@ Aktoren auf eibmarkt.de. **Jeder Download nur nach Freigabe (Datei, Quelle, Grö
 ### 6 – Export
 1. CSV/Markdown (immer).
 2. **ETS-Gruppenadressen-Import** (CSV/XML) – von der ETS offiziell unterstützt,
-   sicherer Zwischenschritt.
+   sicherer Zwischenschritt. ✅ `/export/gruppenadressen-ets.xml` (GroupAddress-Export,
+   Haupt-/Mittelgruppennamen editierbar, nur gesicherte DPTs). Import in der ETS
+   noch nicht ausprobiert.
 3. `.knxproj` erzeugen (experimentell, Format nach Vorbild xknxproject).
 
 ### Web-UI
@@ -153,6 +155,13 @@ Noch offen: Live-Monitor (braucht Phase 4), Raumstruktur als eigene Ebene.
 2. **M2 Zielanlage Inventar:** Phasen 1–4 an der Eibmarkt-Anlage. Garage klären.
 3. **M3 UI:** Ergebnisse ansehen, GAs benennen, Räume zuordnen.
 4. **M4 Parameter:** Produktdaten-Dekodierung, gegen Referenz geprüft.
+   ✅ 16.10.2026 (`params.py`, `knxrecon read-params`): Speicher (absolute/relative
+   Segmente, Properties), Unions, Module (BaseOffset/BaseNumber), Sichtbarkeit über
+   choose/when. Testanlage: 3099 Parameter aus dem Gerät, 3044 = Projekt; 47 als
+   unsicher markiert (Speicher = Standardbild der Produktdatei, von der ETS offenbar
+   nie geschrieben); 8 unerklärte Abweichungen (5× MDT-Dimmer „Einschaltverhalten Tag“,
+   2× „Szenen überschreiben“, 1× 1.1.255). ETS-only-Schalter aus versteckten
+   Parametern erschlossen: 378/380 richtig. Nebenbei: aktive Objektvarianten.
 5. **M5 Export:** GA-Import, dann `.knxproj`-Versuch.
 6. **M6 Raspberry Pi:** Dauer-Mitschnitt vor Ort.
 

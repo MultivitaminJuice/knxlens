@@ -18,13 +18,13 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from xknx.telegram import GroupAddress
 
-from .. import catalog, compare, decode, device, reference, traffic
+from .. import catalog, compare, decode, device, export, params, reference, traffic
 from ..model import Device
 from ..report import MASK_NAMES
 from ..store import Store
 
 HERE = Path(__file__).parent
-NOTE_FIELDS = {"ga": {"name"}, "device": {"name", "room"}}
+NOTE_FIELDS = {"ga": {"name"}, "device": {"name", "room"}, "range": {"name"}}
 
 
 def _pa_key(pa: str) -> list[int]:
@@ -46,6 +46,8 @@ class State:
     product_paths: list[str] = field(default_factory=list)
     catalog: catalog.Catalog = field(default_factory=catalog.Catalog)
     ga_dpt: dict[str, dict] = field(default_factory=dict)
+    evaluations: dict[str, params.Evaluation | None] = field(default_factory=dict)
+    _app_params: dict[str, params.AppParams] = field(default_factory=dict)
     devices: dict[str, Device] = field(default_factory=dict)
     refs: dict[str, reference.RefDevice] = field(default_factory=dict)
     names: reference.RefNames = field(default_factory=reference.RefNames)
@@ -63,6 +65,7 @@ class State:
         for path in self.product_paths:
             self.catalog.add(path)
         self.ga_dpt = catalog.ga_dpts(list(self.devices.values()), self.catalog)
+        self.evaluations = {}
         self.matches = {}
         if self.ref_path:
             self.refs = reference.load(self.ref_path)
@@ -89,6 +92,28 @@ class State:
         d = self.devices.get(pa)
         return self.catalog.lookup(d) if d else None
 
+    def evaluation(self, pa: str) -> params.Evaluation | None:
+        """Parameterauswertung (lazy, gecacht). None ohne Produktdaten oder Parameterspeicher."""
+        if pa in self.evaluations:
+            return self.evaluations[pa]
+        ev = None
+        app = self.product(pa)
+        if app is not None and app.source_path:
+            ap = self._app_params.get(app.key) or self._app_params.setdefault(app.key, params.AppParams(app))
+            ev = params.evaluate_from_store(ap, decode.Raw(self.store(), pa))
+            if not any(v.from_device for v in ev.values):
+                ev = None  # Parameterspeicher noch nicht gelesen
+        self.evaluations[pa] = ev
+        return ev
+
+    def active_variant(self, pa: str, number: int) -> catalog.ObjectVariant | None:
+        """Objektvariante, die laut Parametern aktiv ist."""
+        ev = self.evaluation(pa)
+        app = self.product(pa)
+        if ev is None or app is None or number not in ev.active_cos:
+            return None
+        return app.variant_by_ref.get(ev.active_cos[number])
+
     def product_name(self, pa: str) -> str:
         app = self.product(pa)
         return app.products[0][0] if app and app.products else (app.name if app else "")
@@ -107,6 +132,8 @@ class State:
         r = self.ref_of(pa)
         if r and (text := self.names.co.get((r.pa, number))):
             return text
+        if (active := self.active_variant(pa, number)) is not None:
+            return active.label
         variants = self.variants(pa, number)
         if not variants:
             return ""
@@ -179,12 +206,18 @@ def create_app(db_path: str, ref_path: str | None = None, product_paths: list[st
         app = state.product(pa)
         rows = [
             {"number": n, "obj": objs.get(n), "gas": sorted(by_obj.get(n, []), key=lambda g: GroupAddress(g).raw),
-             "text": state.co_text(pa, n), "variants": state.variants(pa, n),
-             "dpt": app.object_dpt(n, objs.get(n)) if app else None}
+             "text": state.co_text(pa, n),
+             "variants": [] if state.active_variant(pa, n) else state.variants(pa, n),
+             "dpt": (v.dpt if (v := state.active_variant(pa, n)) else (app.object_dpt(n, objs.get(n)) if app else None))}
             for n in numbers
         ]
+        ev = state.evaluation(pa)
+        groups: dict[tuple, list] = {}
+        for v in (ev.values if ev else []):
+            if not v.internal:
+                groups.setdefault(v.path, []).append(v)
         return render(
-            request, "device.html", d=d, rows=rows, match=state.matches.get(pa), app=app,
+            request, "device.html", d=d, rows=rows, match=state.matches.get(pa), app=app, ev=ev, groups=groups,
             note=state.store().notes("device").get(pa, {}), ga_notes=state.store().notes("ga"),
             ref_names=state.names.ga,
         )
@@ -193,6 +226,7 @@ def create_app(db_path: str, ref_path: str | None = None, product_paths: list[st
     def gas_page(request: Request, q: str = ""):
         return render(
             request, "gas.html", index=state.ga_index(), notes=state.store().notes("ga"),
+            ranges=state.store().notes("range"),
             ref_names=state.names.ga, q=q, co_text=state.co_text,
         )
 
@@ -271,6 +305,17 @@ def create_app(db_path: str, ref_path: str | None = None, product_paths: list[st
     def reload():
         state.load()
         return RedirectResponse("/", status_code=303)
+
+    @app.get("/export/gruppenadressen-ets.xml")
+    def export_ets():
+        """Gruppenadressen zum Import in die ETS (nur gesicherte DPTs)."""
+        store = state.store()
+        names = {ga: n.get("name", "") for ga, n in store.notes("ga").items()}
+        ranges = {k: n.get("name", "") for k, n in store.notes("range").items()}
+        dpts = {**state.ga_dpt, **state.names.dpt}
+        data = export.ga_xml(list(state.ga_index()), names, dpts, ranges)
+        return Response(data, media_type="application/xml",
+                        headers={"Content-Disposition": 'attachment; filename="gruppenadressen-ets.xml"'})
 
     @app.get("/export/gruppenadressen.csv")
     def export_gas():

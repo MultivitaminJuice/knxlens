@@ -9,19 +9,29 @@
 {% endif %}
 
 <div class="toolbar">
-  <input type="search" placeholder="Filtern nach GA, Name, Gerät …" value="{{ q }}" data-filter="tbody tr">
+  <input type="search" placeholder="Filtern nach GA, Name, Gerät …" value="{{ q }}" data-filter="tbody tr:not(.range)">
   <span class="muted"><span data-count></span> von {{ index|length }}</span>
   {% if has_ref %}
   <form method="post" action="/api/reference-names"><button title="Nur leere Namen werden gefüllt">Namen aus Referenz übernehmen</button></form>
   {% endif %}
   <a class="button" href="/export/gruppenadressen.csv">CSV</a>
+  <a class="button" href="/export/gruppenadressen-ets.xml" title="Import in der ETS: Gruppenadressen → Importieren">ETS-Import (XML)</a>
 </div>
 
 <div class="table-wrap">
 <table>
   <thead><tr><th>GA</th><th>Name</th><th>Verknüpft mit</th></tr></thead>
   <tbody>
+  {% set ns = namespace(main=None, middle=None) %}
   {% for ga, uses in index.items() %}
+    {% set parts = ga.split('/') %}
+    {% if parts[0] != ns.main %}{% set ns.main = parts[0] %}{% set ns.middle = None %}
+    <tr class="range"><td class="addr"><b>{{ parts[0] }}</b></td><td colspan="2"><input class="note" data-kind="range" data-key="{{ parts[0] }}" data-field="name" value="{{ ranges.get(parts[0], {}).get('name', '') }}" placeholder="Hauptgruppe benennen"></td></tr>
+    {% endif %}
+    {% set mid = parts[0] ~ '/' ~ parts[1] %}
+    {% if mid != ns.middle %}{% set ns.middle = mid %}
+    <tr class="range"><td class="addr">{{ mid }}</td><td colspan="2"><input class="note" data-kind="range" data-key="{{ mid }}" data-field="name" value="{{ ranges.get(mid, {}).get('name', '') }}" placeholder="Mittelgruppe benennen"></td></tr>
+    {% endif %}
     {% set name = notes.get(ga, {}).get('name', '') %}
     <tr>
       <td class="addr">{{ ga }}</td>

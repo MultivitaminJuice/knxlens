@@ -81,6 +81,9 @@ class Application:
     objects: dict[int, list[ObjectVariant]] = field(default_factory=dict)
     products: list[tuple[str, str]] = field(default_factory=list)  # (Name, Bestellnummer)
     source: str = ""
+    variant_by_ref: dict[str, ObjectVariant] = field(default_factory=dict)  # ComObjectRef-Id → Variante
+    source_path: str = ""  # Archiv/Ordner, für späteres Nachladen (Parameter)
+    member: str = ""  # Datei im Archiv
 
     def variants(self, number: int, obj: GroupObject | None = None) -> list[ObjectVariant]:
         """Kandidaten für eine Objektnummer, mit Bus-Daten eingegrenzt (falls vorhanden)."""
@@ -152,24 +155,53 @@ def parse_application(xml: bytes, source: str = "") -> Application | None:
         source=source,
     )
     seen = set()
-    for ref in _children(prog, "ComObjectRef"):
-        parent = base.get(ref.get("RefId"))
-        if parent is None or "Number" not in parent:
-            continue  # z. B. Modulobjekt ohne feste Nummer
+
+    def add_variant(number: int, ref, parent: dict, args_text: dict[str, str], instance: str | None = None) -> None:
         merged = {**parent, **{k: v for k, v in ref.attrib.items() if k not in ("Id", "RefId")}}
         variant = ObjectVariant(
-            text=text(ref.get("Id"), ref.attrib, "Text") or parent["Text"],
-            function=text(ref.get("Id"), ref.attrib, "FunctionText") or parent["FunctionText"],
+            text=_fill(text(ref.get("Id"), ref.attrib, "Text") or parent["Text"], args_text),
+            function=_fill(text(ref.get("Id"), ref.attrib, "FunctionText") or parent["FunctionText"], args_text),
             dpt=parse_dpt(merged.get("DatapointType")),
             size=merged.get("ObjectSize"),
             flags=_flags(merged),
         )
-        number = int(parent["Number"])
+        # Module: dieselbe Ref-Id je Instanz mit anderem Kanaltext → Schlüssel mit Instanz
+        app.variant_by_ref[f"{instance}|{ref.get('Id')}" if instance else ref.get("Id")] = variant
         sig = (number, variant.label, str(variant.dpt), variant.size, tuple(sorted(variant.flags.items())))
         if sig not in seen:
             seen.add(sig)
             app.objects.setdefault(number, []).append(variant)
+
+    # Objekte in Moduldefinitionen: Nummer = Argument (BaseNumber) + Number, je Modulinstanz
+    module_defs = {md.get("Id"): md for md in _children(prog, "ModuleDef")}
+    in_modules = {ref.get("Id") for md in module_defs.values() for ref in _children(md, "ComObjectRef")}
+    for ref in _children(prog, "ComObjectRef"):
+        parent = base.get(ref.get("RefId"))
+        if parent is None or "Number" not in parent or "BaseNumber" in parent or ref.get("Id") in in_modules:
+            continue
+        add_variant(int(parent["Number"]), ref, parent, {})
+
+    for inst in _children(prog, "Module"):
+        md = module_defs.get(inst.get("RefId"))
+        if md is None:
+            continue
+        names = {a.get("Id"): a.get("Name") for a in _children(md, "Argument")}
+        numeric = {a.get("RefId"): int(a.get("Value", "0")) for a in inst if _local(a.tag) == "NumericArg"}
+        args_text = {names.get(a.get("RefId"), ""): a.get("Value", "") for a in inst if _local(a.tag) == "TextArg"}
+        for ref in _children(md, "ComObjectRef"):
+            parent = base.get(ref.get("RefId"))
+            if parent is None or "Number" not in parent:
+                continue
+            number = int(parent["Number"]) + numeric.get(parent.get("BaseNumber"), 0)
+            add_variant(number, ref, parent, args_text, inst.get("Id"))
     return app
+
+
+def _fill(text: str, args: dict[str, str]) -> str:
+    """{{ChNo}} durch Modulargumente ersetzen; übrige Platzhalter (parameterabhängig) entfernen."""
+    for name, value in args.items():
+        text = text.replace("{{" + name + "}}", value)
+    return re.sub(r"\s*\{\{[^}]*\}\}\s*", " ", text).strip(" :")
 
 
 def parse_hardware(xml: bytes) -> dict[str, list[tuple[str, str]]]:
@@ -207,6 +239,8 @@ class Catalog:
                     hardware.setdefault(k, []).extend(v)
             elif APP_FILE.match(name):
                 app = parse_application(read(), source=f"{path.name}:{name}")
+                if app:
+                    app.source_path, app.member = str(path), name
                 if app and app.key not in self.apps:
                     self.apps[app.key] = app
         for key, products in hardware.items():
