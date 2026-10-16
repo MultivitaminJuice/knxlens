@@ -245,11 +245,20 @@ class AppParams:
 
     # --- Auswertung -------------------------------------------------------------
 
-    def evaluate(self, mem: MemFn, prop: PropFn, rel_base: Callable[[int], int | None]) -> Evaluation:
-        ev = Evaluation(self, mem, prop, rel_base)
+    def evaluate(self, mem: MemFn, prop: PropFn, rel_base: Callable[[int], int | None],
+                 linked: set[int] | None = None) -> Evaluation:
+        """linked: Objektnummern mit GA-Verknüpfung am Bus – nur aktive Objekte lassen sich verknüpfen."""
+        ev = Evaluation(self, mem, prop, rel_base, linked or set())
         if self.dynamic is not None:
             ev.walk(self.dynamic, Context(), (), False)
         return ev
+
+    def module_args(self, instance_id: str) -> list[tuple[str, str]] | None:
+        """Argumente einer Modulinstanz aus den Produktdaten."""
+        for m in _children(self.prog, "Module"):
+            if m.get("Id") == instance_id:
+                return [(a.get("RefId"), a.get("Value", "")) for a in m if _local(a.tag) in ("NumericArg", "TextArg")]
+        return None
 
     def needed_ranges(self) -> list[tuple[str, int, int]]:
         """(Segment-Id, Start, Länge) aller Parameterbytes je Segment – unabhängig von Sichtbarkeit.
@@ -276,8 +285,9 @@ class AppParams:
 
 
 class Evaluation:
-    def __init__(self, ap: AppParams, mem: MemFn, prop: PropFn, rel_base) -> None:
+    def __init__(self, ap: AppParams, mem: MemFn, prop: PropFn, rel_base, linked: set[int] | None = None) -> None:
         self.ap = ap
+        self.linked = linked or set()
         self.mem = mem
         self.prop = prop
         self.rel_base = rel_base
@@ -288,6 +298,7 @@ class Evaluation:
         self._seen: set[str] = set()
         self.inferred: list[str] = []  # Bedingungen, deren ETS-only-Wert aus dem Speicher erschlossen wurde
         self.inferred_keys: list[tuple[str, str, str]] = []  # (Parameter-Schlüssel, gewählter test, Standard)
+        self.modules: list[tuple[str, list[tuple[str, str]]]] = []  # aktive Modulinstanzen: (Id, [(Arg-RefId, Wert)])
 
     def address(self, loc: Location, ctx: Context) -> tuple[int, int] | None:
         """(Byteadresse, Bitrest) im Gerät."""
@@ -412,6 +423,9 @@ class Evaluation:
                     text={self.ap.arg_names.get(a.get("RefId"), ""): a.get("Value", "")
                           for a in child if _local(a.tag) == "TextArg"},
                 )
+                args = [(a.get("RefId"), a.get("Value", "")) for a in child if _local(a.tag) in ("NumericArg", "TextArg")]
+                if child.get("Id") not in {m[0] for m in self.modules}:
+                    self.modules.append((child.get("Id"), args))
                 dyn = next((d for d in md if _local(d.tag) == "Dynamic"), None)
                 if dyn is not None:
                     self.walk(dyn, sub, path, uncertain)
@@ -426,9 +440,20 @@ class Evaluation:
         Versteckte Refs zeigen in jedem Zweig einen festen Standardwert, den die ETS
         mit herunterlädt. Widerspricht der Speicher, ist der Zweig nicht aktiv.
         """
-        scores = []
+        # Beleg aus Verknüpfungen nur, wenn das verknüpfte Objekt allein in diesem Zweig vorkommt
+        numbers = []
         for w in whens:
-            good = bad = 0
+            found = set()
+            for el in _co_refrefs(w):
+                n = self._co_number(self.ap.co_refs.get(el.get("RefId")), ctx)
+                if n is not None and n in self.linked:
+                    found.add(n)
+            numbers.append(found)
+        scores = []
+        for w, found in zip(whens, numbers):
+            others = set().union(*(f for f in numbers if f is not found)) if len(numbers) > 1 else set()
+            good = 2 * len(found - others)
+            bad = 0
             for el in _direct_refs(w):
                 ref = self.ap.refs.get(el.get("RefId"))
                 # Beleg nur durch Werte, die die ETS fest vorgibt (nicht editierbar)
@@ -459,6 +484,16 @@ class Evaluation:
             return None
         n, base = self.ap.co_numbers[co_id]
         return n + ctx.numeric.get(base, 0) if base else n
+
+
+def _co_refrefs(elem):
+    """ComObjectRefRefs eines Zweigs, auch in verschachtelten Blöcken (nicht in Modulen)."""
+    for c in elem:
+        tag = _local(c.tag)
+        if tag == "ComObjectRefRef":
+            yield c
+        elif tag != "Module":
+            yield from _co_refrefs(c)
 
 
 def _direct_refs(elem):
@@ -600,11 +635,11 @@ async def read(reader, ap: AppParams) -> dict:
     return summary
 
 
-def evaluate_from_store(ap: AppParams, raw) -> Evaluation:
-    """Auswertung mit den gespeicherten Rohdaten (decode.Raw)."""
+def evaluate_from_store(ap: AppParams, raw, linked: set[int] | None = None) -> Evaluation:
+    """Auswertung mit den gespeicherten Rohdaten (decode.Raw); linked = verknüpfte Objektnummern."""
 
     def rel_base(lsm: int) -> int | None:
         ref = raw.prop(lsm, PID_TABLE_REFERENCE)
         return int.from_bytes(ref, "big") if ref else None
 
-    return ap.evaluate(raw.mem, lambda obj, pid: raw.prop(obj, pid), rel_base)
+    return ap.evaluate(raw.mem, lambda obj, pid: raw.prop(obj, pid), rel_base, linked)

@@ -80,8 +80,10 @@ class Application:
     has_modules: bool
     objects: dict[int, list[ObjectVariant]] = field(default_factory=dict)
     products: list[tuple[str, str]] = field(default_factory=list)  # (Name, Bestellnummer)
+    product_refs: list[tuple[str, str]] = field(default_factory=list)  # (Product-Id, Hardware2Program-Id)
     source: str = ""
     variant_by_ref: dict[str, ObjectVariant] = field(default_factory=dict)  # ComObjectRef-Id → Variante
+    ref_number: dict[str, int] = field(default_factory=dict)  # Varianten-Schlüssel → Objektnummer
     source_path: str = ""  # Archiv/Ordner, für späteres Nachladen (Parameter)
     member: str = ""  # Datei im Archiv
 
@@ -166,7 +168,9 @@ def parse_application(xml: bytes, source: str = "") -> Application | None:
             flags=_flags(merged),
         )
         # Module: dieselbe Ref-Id je Instanz mit anderem Kanaltext → Schlüssel mit Instanz
-        app.variant_by_ref[f"{instance}|{ref.get('Id')}" if instance else ref.get("Id")] = variant
+        key = f"{instance}|{ref.get('Id')}" if instance else ref.get("Id")
+        app.variant_by_ref[key] = variant
+        app.ref_number[key] = number
         sig = (number, variant.label, str(variant.dpt), variant.size, tuple(sorted(variant.flags.items())))
         if sig not in seen:
             seen.add(sig)
@@ -204,8 +208,8 @@ def _fill(text: str, args: dict[str, str]) -> str:
     return re.sub(r"\s*\{\{[^}]*\}\}\s*", " ", text).strip(" :")
 
 
-def parse_hardware(xml: bytes) -> dict[str, list[tuple[str, str]]]:
-    """App-Key → [(Produktname, Bestellnummer)]"""
+def parse_hardware(xml: bytes, refs: dict[str, list[tuple[str, str]]] | None = None) -> dict[str, list[tuple[str, str]]]:
+    """App-Key → [(Produktname, Bestellnummer)]; optional refs: App-Key → [(Product-Id, H2P-Id)]."""
     root = ET.fromstring(xml)
     tr = _translations(root)
     out: dict[str, list[tuple[str, str]]] = {}
@@ -215,10 +219,15 @@ def parse_hardware(xml: bytes) -> dict[str, list[tuple[str, str]]]:
             (tr.get(p.get("Id"), {}).get("Text") or p.get("Text", ""), p.get("OrderNumber", ""))
             for p in _children(hw, "Product")
         ]
-        for ref in _children(hw, "ApplicationProgramRef"):
-            m = APP_KEY.match(ref.get("RefId", ""))
-            if m:
+        product_ids = [p.get("Id") for p in _children(hw, "Product")]
+        for h2p in _children(hw, "Hardware2Program"):
+            for ref in _children(h2p, "ApplicationProgramRef"):
+                m = APP_KEY.match(ref.get("RefId", ""))
+                if not m:
+                    continue
                 out.setdefault(m[1], []).extend(p for p in products if p not in out.get(m[1], []))
+                if refs is not None:
+                    refs.setdefault(m[1], []).extend((pid, h2p.get("Id")) for pid in product_ids)
     return out
 
 
@@ -233,9 +242,10 @@ class Catalog:
         path = Path(path)
         before = len(self.apps)
         hardware: dict[str, list[tuple[str, str]]] = {}
+        refs: dict[str, list[tuple[str, str]]] = {}
         for name, read in self._members(path):
             if name.endswith("/Hardware.xml"):
-                for k, v in parse_hardware(read()).items():
+                for k, v in parse_hardware(read(), refs).items():
                     hardware.setdefault(k, []).extend(v)
             elif APP_FILE.match(name):
                 app = parse_application(read(), source=f"{path.name}:{name}")
@@ -248,6 +258,11 @@ class Catalog:
                 for p in products:
                     if p not in self.apps[key].products:
                         self.apps[key].products.append(p)
+        for key, pairs in refs.items():
+            if key in self.apps:
+                for pair in pairs:
+                    if pair not in self.apps[key].product_refs:
+                        self.apps[key].product_refs.append(pair)
         self.sources.append(str(path))
         return len(self.apps) - before
 

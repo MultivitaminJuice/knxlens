@@ -23,7 +23,7 @@ for pa, mask in store.found_devices():
         print(f"{pa:9} keine Produktdaten")
         continue
     ap = cache.get(app.key) or cache.setdefault(app.key, params.AppParams(app))
-    ev = params.evaluate_from_store(ap, decode.Raw(store, pa))
+    ev = params.evaluate_from_store(ap, decode.Raw(store, pa), {n for n, _ in d.links})
     r = param_compare.check(ev, values.get(pa, {}))
     pv = {re.sub(r"_R-\d+$", "", k): v for k, v in values.get(pa, {}).items()}
     inf_ok = sum(1 for key, test, default in ev.inferred_keys if params._test(test, pv.get(key, default)) or (not test))

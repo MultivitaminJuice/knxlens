@@ -97,6 +97,33 @@ async def cmd_read_params(args: argparse.Namespace) -> None:
             print(pa, json.dumps(summary, ensure_ascii=False))
 
 
+def cmd_export_knxproj(args: argparse.Namespace) -> None:
+    from . import catalog, knxproj, params
+
+    store = Store(args.db)
+    cat = catalog.Catalog()
+    for path in args.products:
+        cat.add(path)
+    devices = _decoded(store)
+    evaluations, cache = {}, {}
+    for d in devices:
+        app = cat.lookup(d)
+        if app is None:
+            continue
+        ap = cache.get(app.key) or cache.setdefault(app.key, params.AppParams(app))
+        ev = params.evaluate_from_store(ap, decode.Raw(store, d.pa), {n for n, _ in d.links})
+        evaluations[d.pa] = ev if any(v.from_device for v in ev.values) else None
+    inp = knxproj.ProjectInput(
+        name=args.name, devices=devices, catalog=cat, evaluations=evaluations,
+        ga_names={k: v.get("name", "") for k, v in store.notes("ga").items()},
+        range_names={k: v.get("name", "") for k, v in store.notes("range").items()},
+        dpts=catalog.ga_dpts(devices, cat), device_notes=store.notes("device"),
+    )
+    stats = knxproj.write(inp, args.out)
+    print(f"geschrieben: {args.out}")
+    print(json.dumps(stats, ensure_ascii=False))
+
+
 async def cmd_monitor(args: argparse.Namespace) -> None:
     await monitor.run(args.gateway, Store(args.db), args.duration)
 
@@ -149,6 +176,12 @@ def main() -> None:
     s.add_argument("pa", nargs="*")
     s.add_argument("--products", action="append", required=True)
     s.set_defaults(func=cmd_read_params)
+
+    s = sub.add_parser("export-knxproj", help="Rekonstruktion als .knxproj (experimentell)")
+    s.add_argument("--products", action="append", required=True)
+    s.add_argument("--name", default="Rekonstruktion")
+    s.add_argument("-o", "--out", required=True)
+    s.set_defaults(func=cmd_export_knxproj)
 
     s = sub.add_parser("monitor", help="Gruppentelegramme passiv mitschneiden (sendet nichts)")
     s.add_argument("--duration", type=float, help="Sekunden; ohne Angabe bis Strg-C")

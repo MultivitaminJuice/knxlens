@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from xknx.telegram import GroupAddress
 
-from .. import catalog, compare, decode, device, export, params, reference, traffic
+from .. import catalog, compare, decode, device, export, knxproj, params, reference, traffic
 from ..model import Device
 from ..report import MASK_NAMES
 from ..store import Store
@@ -100,7 +100,7 @@ class State:
         app = self.product(pa)
         if app is not None and app.source_path:
             ap = self._app_params.get(app.key) or self._app_params.setdefault(app.key, params.AppParams(app))
-            ev = params.evaluate_from_store(ap, decode.Raw(self.store(), pa))
+            ev = params.evaluate_from_store(ap, decode.Raw(self.store(), pa), {n for n, _ in self.devices[pa].links})
             if not any(v.from_device for v in ev.values):
                 ev = None  # Parameterspeicher noch nicht gelesen
         self.evaluations[pa] = ev
@@ -316,6 +316,29 @@ def create_app(db_path: str, ref_path: str | None = None, product_paths: list[st
         data = export.ga_xml(list(state.ga_index()), names, dpts, ranges)
         return Response(data, media_type="application/xml",
                         headers={"Content-Disposition": 'attachment; filename="gruppenadressen-ets.xml"'})
+
+    @app.get("/export/projekt.knxproj")
+    def export_project():
+        """Rekonstruiertes Projekt (experimentell, unsigniert)."""
+        import tempfile
+
+        store = state.store()
+        devices = list(state.devices.values())
+        inp = knxproj.ProjectInput(
+            name="Rekonstruktion", devices=devices, catalog=state.catalog,
+            evaluations={d.pa: state.evaluation(d.pa) for d in devices},
+            ga_names={k: v.get("name", "") for k, v in store.notes("ga").items()},
+            range_names={k: v.get("name", "") for k, v in store.notes("range").items()},
+            dpts={**state.ga_dpt, **state.names.dpt}, device_notes=store.notes("device"),
+        )
+        if not any(state.catalog.lookup(d) for d in devices):
+            raise HTTPException(400, "Ohne Produktdaten kein Projekt (serve --products …)")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = f"{tmp}/projekt.knxproj"
+            knxproj.write(inp, path)
+            data = Path(path).read_bytes()
+        return Response(data, media_type="application/zip",
+                        headers={"Content-Disposition": 'attachment; filename="rekonstruktion.knxproj"'})
 
     @app.get("/export/gruppenadressen.csv")
     def export_gas():

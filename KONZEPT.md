@@ -131,6 +131,15 @@ Aktoren auf eibmarkt.de. **Jeder Download nur nach Freigabe (Datei, Quelle, Grö
    Haupt-/Mittelgruppennamen editierbar, nur gesicherte DPTs). Import in der ETS
    noch nicht ausprobiert.
 3. `.knxproj` erzeugen (experimentell, Format nach Vorbild xknxproject).
+   ✅ 16.10.2026 (`knxproj.py`, `knxrecon export-knxproj`, Button in der Oberfläche):
+   Produktdaten + Herstellersignaturen unverändert übernommen, Projektteil erzeugt
+   (Topologie, Geräte, geänderte Parameter, Objekt-Verknüpfungen, Modulinstanzen,
+   Gruppenadressen, Räume). **Unsigniert** – die ETS-Projektsignatur (Lizenzzertifikat)
+   wird bewusst nicht nachgebildet. Rückprüfung mit xknxproject gegen Original:
+   40/40 Geräte, Produkt und Applikation, 588/588 Verknüpfungen, 452 Parameterwerte
+   identisch. 125 Objekte mit geschätzter Variante. **ETS-Import ungetestet.**
+   ⚠ Ein rekonstruiertes Projekt nie ungeprüft auf Geräte herunterladen: unsichere
+   und geschätzte Werte würden dabei ins Gerät geschrieben.
 
 ### Web-UI
 Geräteliste, GA-Tabelle mit Benennung und Raumzuordnung (die nicht
@@ -162,7 +171,7 @@ Noch offen: Live-Monitor (braucht Phase 4), Raumstruktur als eigene Ebene.
    nie geschrieben); 8 unerklärte Abweichungen (5× MDT-Dimmer „Einschaltverhalten Tag“,
    2× „Szenen überschreiben“, 1× 1.1.255). ETS-only-Schalter aus versteckten
    Parametern erschlossen: 378/380 richtig. Nebenbei: aktive Objektvarianten.
-5. **M5 Export:** GA-Import, dann `.knxproj`-Versuch.
+5. **M5 Export:** GA-Import, dann `.knxproj`-Versuch. ✅ gebaut, ETS-Test durch den Nutzer offen.
 6. **M6 Raspberry Pi:** Dauer-Mitschnitt vor Ort.
 
 ## Konsequenz Zielanlage = BCU1/BCU2

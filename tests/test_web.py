@@ -48,6 +48,10 @@ def test_ets_export(client):
     assert '<GroupAddress Name="Flur" Address="1/0/1"' in xml
 
 
+def test_project_export_needs_products(client):
+    assert client.get("/export/projekt.knxproj").status_code == 400
+
+
 def test_note_rejects_unknown_fields(client):
     assert client.post("/api/note", json={"kind": "ga", "key": "1/0/1", "field": "dpt", "value": "x"}).status_code == 400
     assert client.post("/api/note", json={"kind": "bus", "key": "x", "field": "name", "value": "x"}).status_code == 400
