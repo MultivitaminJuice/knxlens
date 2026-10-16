@@ -1,7 +1,9 @@
 [project]
 name = "knxlens"
 version = "0.1.0"
-description = "KNX-Anlage ohne ETS-Projekt rein lesend rekonstruieren"
+description = "Blick in eine laufende KNX-Anlage: rein lesend scannen, Tabellen und Parameter dekodieren, mitschneiden, nach ETS exportieren"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "xknx>=4.0,<5",
