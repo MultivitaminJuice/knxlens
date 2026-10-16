@@ -115,6 +115,11 @@ rekonstruierbaren Teile), Live-Monitor, Scan-Fortschritt, Abgleich-Ansicht.
 
 1. **M1 Testanlage lesen:** Phasen 1–3 + Abgleich gegen Referenz. Abnahme:
    alle Geräte gefunden, ≥ 95 % der GA-Verknüpfungen deckungsgleich.
+   ✅ 16.10.2026: 40/40 Geräte, 40/40 Applikations-IDs, **588/588 Verknüpfungen,
+   0 Fehltreffer** gegen ETS-Export vom 16.10. (Projektstand 24.08.2026).
+   Gegen den älteren Februar-Stand nur 80 % – die Rekonstruktion zeigt den
+   tatsächlichen Gerätezustand, nicht ein veraltetes Projekt.
+   Offen in M1: Gruppenobjekttabelle (Flags, Objektgrößen) dekodieren.
 2. **M2 Zielanlage Inventar:** Phasen 1–4 an der Eibmarkt-Anlage. Garage klären.
 3. **M3 UI:** Ergebnisse ansehen, GAs benennen, Räume zuordnen.
 4. **M4 Parameter:** Produktdaten-Dekodierung, gegen Referenz geprüft.
