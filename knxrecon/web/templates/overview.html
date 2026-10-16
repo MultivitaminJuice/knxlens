@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block main %}
+<h1>Geräte</h1>
+<p class="sub">
+  {% if session %}Letzte Sitzung über {{ session[1] }} · {{ session[2] }}{% endif %}
+  · nur gespeicherte Daten, kein Buszugriff
+</p>
+
+<div class="stats">
+  <div class="stat"><b>{{ devices|length }}</b><span>Geräte</span></div>
+  <div class="stat"><b>{{ n_gas }}</b><span>Gruppenadressen</span></div>
+  <div class="stat"><b>{{ n_links }}</b><span>Verknüpfungen</span></div>
+  <div class="stat"><b class="{{ 'warn' if n_problems else 'ok' }}">{{ n_problems }}</b><span>Geräte mit Hinweisen</span></div>
+</div>
+
+<div class="toolbar">
+  <input type="search" placeholder="Filtern nach Adresse, Applikation, Name …" data-filter="tbody tr">
+  <span class="muted"><span data-count></span> angezeigt</span>
+</div>
+<div class="table-wrap">
+<table>
+  <thead><tr>
+    <th>PA</th><th>Name</th><th>Raum</th><th>Typ</th><th>Applikation</th>
+    {% if has_ref %}<th>Referenzgerät</th>{% endif %}
+    <th class="num">GAs</th><th class="num">Verkn.</th><th>Hinweise</th>
+  </tr></thead>
+  <tbody>
+  {% for d in devices %}
+    {% set n = notes.get(d.pa, {}) %}
+    {% set m = matches.get(d.pa) %}
+    <tr>
+      <td class="addr"><a href="/device/{{ d.pa }}">{{ d.pa }}</a></td>
+      <td><input class="note" data-kind="device" data-key="{{ d.pa }}" data-field="name" value="{{ n.get('name', '') }}"></td>
+      <td><input class="note" data-kind="device" data-key="{{ d.pa }}" data-field="room" value="{{ n.get('room', '') }}"></td>
+      <td class="muted nowrap">{{ mask_name(d.mask) }}</td>
+      <td class="mono">{{ d.app_id or '?' }}</td>
+      {% if has_ref %}<td>{% if m and m.ref %}<span class="clip" title="{{ m.ref.name }}">{{ m.ref.name }}</span>{% if m.ref.pa != d.pa %} <span class="chip warn">war {{ m.ref.pa }}</span>{% endif %}{% else %}<span class="muted">–</span>{% endif %}</td>{% endif %}
+      <td class="num">{{ d.group_addresses|length }}</td>
+      <td class="num">{{ d.links|length }}</td>
+      <td>{% for p in d.problems %}<span class="chip warn">{{ p }}</span>{% endfor %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Abgleich · KNX-Rekonstruktion{% endblock %}
+{% block main %}
+<h1>Abgleich mit Referenzprojekt</h1>
+<p class="sub">Geräte werden über Applikation und gemeinsame Gruppenadressen zugeordnet, nicht über die Adresse – so fallen Umadressierungen auf.</p>
+
+{% set total = totals.hit + totals.only_ref %}
+<div class="stats">
+  <div class="stat"><b class="ok">{{ totals.hit }}</b><span>Verknüpfungen gleich</span></div>
+  <div class="stat"><b class="{{ 'warn' if totals.only_bus else 'ok' }}">{{ totals.only_bus }}</b><span>nur am Bus</span></div>
+  <div class="stat"><b class="{{ 'warn' if totals.only_ref else 'ok' }}">{{ totals.only_ref }}</b><span>nur in Referenz</span></div>
+  <div class="stat"><b>{{ '%.1f' % (100 * totals.hit / total) if total else '–' }} %</b><span>Abdeckung</span></div>
+</div>
+
+{% if missing %}
+<div class="notice">Referenzgeräte ohne Gegenstück am Bus:
+  {% for r in missing %}<span class="chip">{{ r.pa }} {{ r.name[:30] }}</span>{% endfor %}
+</div>
+{% endif %}
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Bus-PA</th><th>Referenzgerät</th><th class="num">gleich</th><th class="num">nur Bus</th><th class="num">nur Ref.</th><th>Abweichungen</th></tr></thead>
+  <tbody>
+  {% for d in devices %}
+    {% set m = matches.get(d.pa) %}
+    <tr>
+      <td class="addr"><a href="/device/{{ d.pa }}">{{ d.pa }}</a></td>
+      <td>{% if m and m.ref %}<span class="clip" title="{{ m.ref.name }}">{{ m.ref.name }}</span>{% if m.ref.pa != d.pa %} <span class="chip warn">war {{ m.ref.pa }}</span>{% endif %}{% else %}<span class="muted">kein Gegenstück</span>{% endif %}</td>
+      <td class="num ok">{{ m.hit|length if m else '' }}</td>
+      <td class="num {{ 'warn' if m and m.only_bus }}">{{ m.only_bus|length if m else '' }}</td>
+      <td class="num {{ 'warn' if m and m.only_ref }}">{{ m.only_ref|length if m else '' }}</td>
+      <td class="mono">
+        {% if m %}
+          {% for num, ga in m.only_bus|sort %}<div class="warn">+ {{ num }} → {{ ga }}</div>{% endfor %}
+          {% for num, ga in m.only_ref|sort %}<div class="bad">− {{ num }} → {{ ga }} <span class="muted">{{ ref_names.get(ga, '') }}</span></div>{% endfor %}
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

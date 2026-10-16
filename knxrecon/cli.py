@@ -74,6 +74,16 @@ def cmd_report(args: argparse.Namespace) -> None:
         print(text)
 
 
+def cmd_serve(args: argparse.Namespace) -> None:
+    import uvicorn
+
+    from .web import create_app
+
+    if args.host not in ("127.0.0.1", "localhost"):
+        print(f"Achtung: Oberfläche ohne Anmeldung unter {args.host}:{args.port} erreichbar.")
+    uvicorn.run(create_app(args.db, args.reference), host=args.host, port=args.port, log_level="warning")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="knxrecon")
     p.add_argument("-g", "--gateway", help="IP des KNX-IP-Interfaces (für Busbefehle)")
@@ -103,6 +113,12 @@ def main() -> None:
     s = sub.add_parser("report", help="Inventar als Markdown (ohne Referenz)")
     s.add_argument("-o", "--out")
     s.set_defaults(func=cmd_report)
+
+    s = sub.add_parser("serve", help="Weboberfläche (nur gespeicherte Daten, kein Buszugriff)")
+    s.add_argument("--reference", help="xknxproject-JSON des Referenzprojekts (optional)")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8765)
+    s.set_defaults(func=cmd_serve)
 
     args = p.parse_args()
     logging.basicConfig(

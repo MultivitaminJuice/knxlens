@@ -20,6 +20,10 @@ CREATE TABLE IF NOT EXISTS read (            -- jede einzelne Leseanfrage
 CREATE TABLE IF NOT EXISTS telegram (        -- passiver Mitschnitt
     session INTEGER, ts REAL, src TEXT, dst TEXT, service TEXT, payload BLOB
 );
+CREATE TABLE IF NOT EXISTS note (            -- Ergänzungen des Nutzers (nicht rekonstruierbar)
+    kind TEXT, key TEXT, field TEXT, value TEXT, ts REAL,
+    PRIMARY KEY (kind, key, field)
+);
 """
 
 
@@ -59,6 +63,22 @@ class Store:
             (pa, service, json.dumps(args, sort_keys=True)),
         )
         return cur.fetchone()
+
+    def set_note(self, kind: str, key: str, field: str, value: str) -> None:
+        value = value.strip()
+        if value:
+            self.db.execute(
+                "INSERT OR REPLACE INTO note VALUES (?,?,?,?,?)", (kind, key, field, value, time.time())
+            )
+        else:
+            self.db.execute("DELETE FROM note WHERE kind=? AND key=? AND field=?", (kind, key, field))
+        self.db.commit()
+
+    def notes(self, kind: str) -> dict[str, dict[str, str]]:
+        out: dict[str, dict[str, str]] = {}
+        for key, field, value in self.db.execute("SELECT key, field, value FROM note WHERE kind=?", (kind,)):
+            out.setdefault(key, {})[field] = value
+        return out
 
     def found_devices(self) -> list[tuple[str, int]]:
         """PAs, die im jüngsten Scan geantwortet haben, mit Maskenversion."""

@@ -111,6 +111,13 @@ im Dauerbetrieb.
 Geräteliste, GA-Tabelle mit Benennung und Raumzuordnung (die nicht
 rekonstruierbaren Teile), Live-Monitor, Scan-Fortschritt, Abgleich-Ansicht.
 
+**Stand 16.10.2026:** `knxrecon serve` (FastAPI + Jinja2, kein CDN, läuft offline).
+Geräte, Geräteseite mit Objekten/Flags, GA-Tabelle mit Namen (in SQLite, Tabelle
+`note`), „Namen aus Referenz übernehmen“, CSV-Export, Abgleich. **Kein Buszugriff
+aus der Oberfläche** (per Test abgesichert); Scans/Lesen nur über die CLI.
+Standard 127.0.0.1; mit `--host 0.0.0.0` (Pi) ohne Anmeldung erreichbar.
+Noch offen: Live-Monitor (braucht Phase 4), Raumstruktur als eigene Ebene.
+
 ## Meilensteine
 
 1. **M1 Testanlage lesen:** Phasen 1–3 + Abgleich gegen Referenz. Abnahme:

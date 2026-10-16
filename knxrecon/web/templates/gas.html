@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Gruppenadressen · KNX-Rekonstruktion{% endblock %}
+{% block main %}
+<h1>Gruppenadressen</h1>
+<p class="sub">Namen sind nicht rekonstruierbar – hier ergänzen. Gespeichert wird beim Verlassen des Feldes.</p>
+
+{% if request.query_params.get('adopted') %}
+<div class="notice">{{ request.query_params.get('adopted') }} Namen aus dem Referenzprojekt übernommen (nur leere Felder).</div>
+{% endif %}
+
+<div class="toolbar">
+  <input type="search" placeholder="Filtern nach GA, Name, Gerät …" value="{{ q }}" data-filter="tbody tr">
+  <span class="muted"><span data-count></span> von {{ index|length }}</span>
+  {% if has_ref %}
+  <form method="post" action="/api/reference-names"><button title="Nur leere Namen werden gefüllt">Namen aus Referenz übernehmen</button></form>
+  {% endif %}
+  <a class="button" href="/export/gruppenadressen.csv">CSV</a>
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>GA</th><th>Name</th><th>Verknüpft mit</th></tr></thead>
+  <tbody>
+  {% for ga, uses in index.items() %}
+    {% set name = notes.get(ga, {}).get('name', '') %}
+    <tr>
+      <td class="addr">{{ ga }}</td>
+      <td>
+        <input class="note" data-kind="ga" data-key="{{ ga }}" data-field="name" value="{{ name }}">
+        {% if has_ref and ref_names.get(ga) and ref_names[ga] != name %}<div class="suggest">Referenz: {{ ref_names[ga] }}</div>{% endif %}
+      </td>
+      <td>
+        {% for d, num in uses %}
+          <div><a class="mono" href="/device/{{ d.pa }}">{{ d.pa }}</a><span class="mono muted">/{{ num }}</span>
+          <span class="muted">{{ co_text(d.pa, num) }}</span></div>
+        {% endfor %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

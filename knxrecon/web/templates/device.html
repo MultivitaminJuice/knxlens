@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ d.pa }} · KNX-Rekonstruktion{% endblock %}
+{% block main %}
+<p class="sub"><a href="/">← Geräte</a></p>
+<h1 class="mono">{{ d.pa }}</h1>
+<p class="sub">{{ note.get('name') or (match.ref.name if match and match.ref else 'unbenannt') }}{% if note.get('room') %} · {{ note.room }}{% endif %}</p>
+
+<div class="grid2">
+  <div class="card">
+    <dl class="meta">
+      <dt>Maske</dt><dd class="mono">{{ '%#06x' % d.mask }} · {{ mask_name(d.mask) }}</dd>
+      <dt>Applikation</dt><dd class="mono">{{ d.app_id or '?' }}</dd>
+      <dt>Hersteller-ID</dt><dd class="mono">{{ '%#06x' % d.manufacturer if d.manufacturer is not none else '?' }}</dd>
+      {% if d.serial %}<dt>Seriennummer</dt><dd class="mono">{{ d.serial }}</dd>{% endif %}
+      {% if d.run_error is not none %}<dt>RunError</dt><dd class="mono {{ 'ok' if d.run_error == 255 else 'bad' }}">{{ '%#04x' % d.run_error }}</dd>{% endif %}
+      <dt>Gruppenadressen</dt><dd>{{ d.group_addresses|length }}</dd>
+      <dt>Verknüpfungen</dt><dd>{{ d.links|length }}</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <dl class="meta">
+      <dt>Name</dt><dd><input class="note" data-kind="device" data-key="{{ d.pa }}" data-field="name" value="{{ note.get('name', '') }}"></dd>
+      <dt>Raum</dt><dd><input class="note" data-kind="device" data-key="{{ d.pa }}" data-field="room" value="{{ note.get('room', '') }}"></dd>
+      {% if match and match.ref %}
+      <dt>Referenz</dt><dd>{{ match.ref.name }} <span class="muted mono">({{ match.ref.pa }})</span></dd>
+      <dt>Abgleich</dt><dd><span class="ok">{{ match.hit|length }} gleich</span> · <span class="{{ 'warn' if match.only_bus else 'muted' }}">{{ match.only_bus|length }} nur Bus</span> · <span class="{{ 'warn' if match.only_ref else 'muted' }}">{{ match.only_ref|length }} nur Referenz</span></dd>
+      {% endif %}
+    </dl>
+    {% for p in d.problems %}<p><span class="chip warn">{{ p }}</span></p>{% endfor %}
+  </div>
+</div>
+
+<h2>Gruppenobjekte</h2>
+{% if not d.objects %}<p class="muted">Objekttabelle für diesen Gerätetyp noch nicht dekodiert – Flags und Größen fehlen, Verknüpfungen sind vollständig.</p>{% endif %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th class="num">Nr.</th>{% if has_ref %}<th>Objekt (aus Referenz)</th>{% endif %}{% if d.objects %}<th>Flags</th><th>Größe</th>{% endif %}<th>Gruppenadressen</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td class="num mono">{{ r.number }}</td>
+      {% if has_ref %}<td>{{ r.text or '' }}</td>{% endif %}
+      {% if d.objects %}
+      <td class="flags" title="K Kommunikation · L Lesen · S Schreiben · Ü Übertragen · A Aktualisieren">{{ r.obj.flags if r.obj else '' }}</td>
+      <td class="muted nowrap">{{ r.obj.size if r.obj and r.obj.size else '' }}</td>
+      {% endif %}
+      <td>
+        {% for ga in r.gas %}
+          <div><a class="mono" href="/gas?q={{ ga }}">{{ ga }}</a>
+            <span class="muted">{{ ga_notes.get(ga, {}).get('name') or ref_names.get(ga, '') }}</span></div>
+        {% else %}<span class="muted">–</span>{% endfor %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
