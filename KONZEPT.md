@@ -136,6 +136,15 @@ Assoziationstabelle, 0x0112 Zeiger Gruppenobjekttabelle, ab 0x0116 Adresstabelle
 Katalog und Telegrammmitschnitt; vorab im Speicher gezielt ein bekanntes Gerät
 prüfen (z. B. einen Taster mit bekannter Funktion).
 
+**Stand 16.10.2026:** Pfad gebaut (`bcu1.py`), nur gegen nachgebautes Speicherabbild
+getestet. Lesen strikt auf 0x0100–0x01FF (BCU1) bzw. 0x0100–0x04FF (BCU2) begrenzt,
+unplausible Zeiger werden gemeldet statt verfolgt. BCU2: erst Properties, sonst feste
+Karte. RunError (0x010D) wird ausgewertet – nützlich für den Garagen-BWM.
+Konfigurationsbyte der Gruppenobjekte an System-B-Geräten der Testanlage belegt
+(23/23 Flags + Größen); Bit 5 („Init lesen“ / BCU1: EEPROM-Wert) ungeprüft.
+**Erste Aufgabe an der Zielanlage:** ein Gerät mit bekannter Funktion lesen und
+Ergebnis von Hand plausibilisieren, bevor der Rest gelesen wird.
+
 ## Risiken
 
 - **Speicherschutz:** Manche Geräte verweigern Memory-Read ohne Authorize →

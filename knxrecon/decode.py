@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 
 from xknx.telegram import GroupAddress, IndividualAddress
 
@@ -11,6 +10,7 @@ from .device import (
     OT_ADDRESS_TABLE,
     OT_APPLICATION,
     OT_ASSOCIATION_TABLE,
+    OT_GROUP_OBJECT_TABLE,
     PID_LOAD_STATE_CONTROL,
     PID_MANUFACTURER_ID,
     PID_OBJECT_TYPE,
@@ -19,28 +19,9 @@ from .device import (
     PID_SERIAL_NUMBER,
     PID_TABLE_REFERENCE,
 )
+from . import bcu1
+from .model import Device, config_byte
 from .store import Store
-
-
-@dataclass
-class Device:
-    pa: str
-    mask: int | None
-    manufacturer: int | None = None
-    serial: str | None = None
-    order_info: bytes | None = None
-    app_manufacturer: int | None = None
-    app_number: int | None = None
-    app_version: int | None = None
-    group_addresses: list[str] = field(default_factory=list)
-    links: set[tuple[int, str]] = field(default_factory=set)  # (Objektnummer, GA)
-    problems: list[str] = field(default_factory=list)
-
-    @property
-    def app_id(self) -> str | None:
-        if self.app_manufacturer is None:
-            return None
-        return f"M-{self.app_manufacturer:04X}_A-{self.app_number:04X}-{self.app_version:02X}"
 
 
 class Raw:
@@ -111,7 +92,20 @@ def _table(raw: Raw, objects: dict[int, int], otype: int, head_size: int, entry_
 
 
 def decode_device(store: Store, pa: str, mask: int | None) -> Device:
+    """Je nach Maske: feste BCU-Speicherkarte oder Interface-Objekte."""
     raw = Raw(store, pa)
+    if bcu1.is_bcu1(mask):
+        return bcu1.decode(raw.mem, Device(pa=pa, mask=mask))
+    dev = _decode_properties(raw, pa, mask)
+    if bcu1.is_bcu2(mask) and "Adresstabelle nicht lesbar" in dev.problems:
+        # BCU2 ohne verwertbare Tabellenzeiger per Property → feste Karte
+        fallback = bcu1.decode(raw.mem, Device(pa=pa, mask=mask))
+        fallback.problems.insert(0, "BCU2: Tabellen über feste Speicherkarte gelesen")
+        return fallback
+    return dev
+
+
+def _decode_properties(raw: Raw, pa: str, mask: int | None) -> Device:
     dev = Device(pa=pa, mask=mask)
     objects = _objects(raw)
 
@@ -155,4 +149,12 @@ def decode_device(store: Store, pa: str, mask: int | None) -> Device:
             dev.links.add((asap, table[tsap]))
         else:
             dev.problems.append(f"Index {tsap} außerhalb der Adresstabelle")
+
+    if mask == 0x07B0:
+        # System B: je Objekt 2 Byte (Konfiguration, Typ), Eintrag i = Objekt i+1.
+        # Gegen ETS-Projekt geprüft (23/23 Objekte: Flags und Größe). Format bei
+        # System 7 noch unbekannt, daher dort keine Objekttabelle.
+        entries = _table(raw, objects, OT_GROUP_OBJECT_TABLE, 2, 2)
+        for i, e in enumerate(entries or []):
+            dev.objects.append(config_byte(i + 1, e[0], e[1], e))
     return dev

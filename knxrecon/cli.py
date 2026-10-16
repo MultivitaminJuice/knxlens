@@ -6,11 +6,11 @@ import argparse
 import asyncio
 import logging
 
-from xknx.telegram import IndividualAddress
-
 import json
 
-from . import bus, compare, decode, device, reference, scan
+from xknx.telegram import IndividualAddress
+
+from . import bus, compare, decode, device, reference, report, scan
 from .store import Store
 
 DEFAULT_DB = "data/recon.sqlite"
@@ -38,7 +38,7 @@ async def cmd_probe(args: argparse.Namespace) -> None:
 async def cmd_read(args: argparse.Namespace) -> None:
     store = Store(args.db)
     masks = dict(store.found_devices())
-    targets = args.pa or [pa for pa, mask in masks.items() if mask and mask >> 8 == 0x07]
+    targets = args.pa or [pa for pa, mask in masks.items() if device.supported(mask)]
     async with bus.connect(args.gateway) as xknx:
         store.start_session(args.gateway, str(xknx.current_address), f"read {len(targets)}")
         for pa in targets:
@@ -55,10 +55,23 @@ def cmd_compare(args: argparse.Namespace) -> None:
     ref = reference.load(args.reference)
     print("## Anwesenheit nach Adresse\n")
     print(compare.compare_presence(store, ref))
-    bus = [decode.decode_device(store, pa, mask) for pa, mask in store.found_devices() if mask and mask >> 8 == 0x07]
-    bus = [d for d in bus if d.app_id or d.links]
     print("\n## Inhaltliche Zuordnung\n")
-    print(compare.compare_links(bus, ref))
+    print(compare.compare_links(_decoded(store), ref))
+
+
+def _decoded(store: Store) -> list:
+    devices = [decode.decode_device(store, pa, mask) for pa, mask in store.found_devices() if device.supported(mask)]
+    return [d for d in devices if d.app_id or d.links]
+
+
+def cmd_report(args: argparse.Namespace) -> None:
+    text = report.inventory(_decoded(Store(args.db)))
+    if args.out:
+        with open(args.out, "w") as f:
+            f.write(text)
+        print(f"geschrieben: {args.out}")
+    else:
+        print(text)
 
 
 def main() -> None:
@@ -86,6 +99,10 @@ def main() -> None:
     s = sub.add_parser("compare", help="gegen Referenz (xknxproject-JSON) abgleichen")
     s.add_argument("reference")
     s.set_defaults(func=cmd_compare)
+
+    s = sub.add_parser("report", help="Inventar als Markdown (ohne Referenz)")
+    s.add_argument("-o", "--out")
+    s.set_defaults(func=cmd_report)
 
     args = p.parse_args()
     logging.basicConfig(
