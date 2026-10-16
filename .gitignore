@@ -4,3 +4,4 @@ data/
 *.knxproj
 *.knxprod
 *.egg-info/
+.DS_Store

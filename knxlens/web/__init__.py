@@ -170,7 +170,7 @@ class NoteIn(BaseModel):
 def create_app(db_path: str, ref_path: str | None = None, product_paths: list[str] | None = None) -> FastAPI:
     state = State(db_path, ref_path, list(product_paths or []))
     state.load()
-    app = FastAPI(title="KNX-Rekonstruktion", docs_url=None, redoc_url=None)
+    app = FastAPI(title="knxlens", docs_url=None, redoc_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.globals.update(

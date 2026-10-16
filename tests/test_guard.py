@@ -5,7 +5,7 @@ import inspect
 import pytest
 from xknx.telegram import apci, tpci
 
-from knxrecon.bus import ALLOWED_APCI, OPTIONAL_APCI, ReadOnlyGuard, WriteBlocked
+from knxlens.bus import ALLOWED_APCI, OPTIONAL_APCI, ReadOnlyGuard, WriteBlocked
 
 DATA = tpci.TDataConnected(sequence_number=0)
 ALL_APCI = [
@@ -76,7 +76,7 @@ def test_install_blocks_on_real_xknx():
     from xknx.dpt import DPTBinary
     from xknx.telegram import GroupAddress, Telegram
 
-    from knxrecon.bus import ReadOnlyGuard
+    from knxlens.bus import ReadOnlyGuard
 
     async def run():
         xknx = XKNX()

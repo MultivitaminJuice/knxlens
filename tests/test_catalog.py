@@ -5,9 +5,9 @@ import zipfile
 import pytest
 from defusedxml import EntitiesForbidden
 
-from knxrecon import catalog
-from knxrecon.catalog import Catalog, ga_dpts, parse_dpt
-from knxrecon.model import Device, config_byte
+from knxlens import catalog
+from knxlens.catalog import Catalog, ga_dpts, parse_dpt
+from knxlens.model import Device, config_byte
 
 NS = 'xmlns="http://knx.org/xml/project/20"'
 APP = "M-0008_A-2032-12-ABCD"

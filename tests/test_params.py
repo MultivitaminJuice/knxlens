@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from knxrecon import params
-from knxrecon.catalog import Catalog
+from knxlens import params
+from knxlens.catalog import Catalog
 
 APP = "M-0008_A-2032-12-ABCD"
 NS = 'xmlns="http://knx.org/xml/project/20"'

@@ -4,9 +4,9 @@ import zipfile
 
 from defusedxml import ElementTree as ET
 
-from knxrecon import knxproj
-from knxrecon.catalog import Application, Catalog, ObjectVariant
-from knxrecon.model import Device
+from knxlens import knxproj
+from knxlens.catalog import Application, Catalog, ObjectVariant
+from knxlens.model import Device
 from test_catalog import make_knxprod
 
 NS = "{http://knx.org/xml/project/20}"

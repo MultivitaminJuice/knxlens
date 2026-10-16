@@ -3,12 +3,12 @@ import re
 import sys
 from collections import Counter
 
-from knxrecon import decode, device, param_compare, params
-from knxrecon.catalog import Catalog
-from knxrecon.store import Store
+from knxlens import decode, device, param_compare, params
+from knxlens.catalog import Catalog
+from knxlens.store import Store
 
 project = sys.argv[1]
-store = Store(sys.argv[2] if len(sys.argv) > 2 else "data/recon.sqlite")
+store = Store(sys.argv[2] if len(sys.argv) > 2 else "data/knxlens.sqlite")
 cat = Catalog()
 cat.add(project)
 values = param_compare.project_values(project)

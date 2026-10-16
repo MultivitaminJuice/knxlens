@@ -1,4 +1,4 @@
-# KNX-Rekonstruktion – Konzept
+# knxlens – Konzept
 
 Ziel: Aus einer laufenden KNX-Anlage ohne ETS-Projekt ein vollständiges Inventar
 (Geräte, Gruppenadressen, Verknüpfungen, möglichst Parameter) rekonstruieren und
@@ -20,7 +20,7 @@ verglichen (xknxproject parst es), bevor wir an die Zielanlage gehen.
 ## Architektur
 
 ```
-knxrecon/            Python-Paket (eine Codebasis für Mac und später Raspberry Pi)
+knxlens/            Python-Paket (eine Codebasis für Mac und später Raspberry Pi)
   bus/               Verbindung + ReadOnlyGuard   ← einzige Stelle, die sendet
   scan/              Linien- und Gerätescan
   device/            Masken-Strategien (BCU1, BCU2, System 7, System B)
@@ -30,7 +30,7 @@ knxrecon/            Python-Paket (eine Codebasis für Mac und später Raspberry
   export/            CSV, Markdown, ETS-GA-Import-XML, .knxproj
   compare/           Abgleich gegen Referenz-.knxproj
   web/               FastAPI + htmx-Oberfläche
-data/recon.sqlite    alle Rohdaten + Nutzer-Ergänzungen
+data/knxlens.sqlite    alle Rohdaten + Nutzer-Ergänzungen
 ```
 
 **Leitprinzipien**
@@ -94,7 +94,7 @@ Gruppentelegramme loggen (Quelle, Ziel-GA, Dienst, Nutzdaten). Liefert reale
 Nutzung, Sender je GA und Hinweise auf den DPT. Erst Mac, später Raspberry Pi
 im Dauerbetrieb.
 
-**Stand 16.10.2026:** `knxrecon monitor [--duration s]` – eigener Tunnel, sendet
+**Stand 16.10.2026:** `knxlens monitor [--duration s]` – eigener Tunnel, sendet
 nichts (Guard-Zähler 0). Auswertung `traffic.py`, Seite „Verkehr“ mit Live-Liste.
 Plausibilitätsprüfung: Telegramme ausgelesener Geräte müssen an GAs aus deren
 Adresstabelle gehen → Testanlage 0 Widersprüche. DPT-Vorschlag aus Nutzlastlänge
@@ -131,7 +131,7 @@ Aktoren auf eibmarkt.de. **Jeder Download nur nach Freigabe (Datei, Quelle, Grö
    Haupt-/Mittelgruppennamen editierbar, nur gesicherte DPTs). Import in der ETS
    noch nicht ausprobiert.
 3. `.knxproj` erzeugen (experimentell, Format nach Vorbild xknxproject).
-   ✅ 16.10.2026 (`knxproj.py`, `knxrecon export-knxproj`, Button in der Oberfläche):
+   ✅ 16.10.2026 (`knxproj.py`, `knxlens export-knxproj`, Button in der Oberfläche):
    Produktdaten + Herstellersignaturen unverändert übernommen, Projektteil erzeugt
    (Topologie, Geräte, geänderte Parameter, Objekt-Verknüpfungen, Modulinstanzen,
    Gruppenadressen, Räume). **Unsigniert** – die ETS-Projektsignatur (Lizenzzertifikat)
@@ -145,7 +145,7 @@ Aktoren auf eibmarkt.de. **Jeder Download nur nach Freigabe (Datei, Quelle, Grö
 Geräteliste, GA-Tabelle mit Benennung und Raumzuordnung (die nicht
 rekonstruierbaren Teile), Live-Monitor, Scan-Fortschritt, Abgleich-Ansicht.
 
-**Stand 16.10.2026:** `knxrecon serve` (FastAPI + Jinja2, kein CDN, läuft offline).
+**Stand 16.10.2026:** `knxlens serve` (FastAPI + Jinja2, kein CDN, läuft offline).
 Geräte, Geräteseite mit Objekten/Flags, GA-Tabelle mit Namen (in SQLite, Tabelle
 `note`), „Namen aus Referenz übernehmen“, CSV-Export, Abgleich. **Kein Buszugriff
 aus der Oberfläche** (per Test abgesichert); Scans/Lesen nur über die CLI.
@@ -164,7 +164,7 @@ Noch offen: Live-Monitor (braucht Phase 4), Raumstruktur als eigene Ebene.
 2. **M2 Zielanlage Inventar:** Phasen 1–4 an der Eibmarkt-Anlage. Garage klären.
 3. **M3 UI:** Ergebnisse ansehen, GAs benennen, Räume zuordnen.
 4. **M4 Parameter:** Produktdaten-Dekodierung, gegen Referenz geprüft.
-   ✅ 16.10.2026 (`params.py`, `knxrecon read-params`): Speicher (absolute/relative
+   ✅ 16.10.2026 (`params.py`, `knxlens read-params`): Speicher (absolute/relative
    Segmente, Properties), Unions, Module (BaseOffset/BaseNumber), Sichtbarkeit über
    choose/when. Testanlage: 3099 Parameter aus dem Gerät, 3044 = Projekt; 47 als
    unsicher markiert (Speicher = Standardbild der Produktdatei, von der ETS offenbar

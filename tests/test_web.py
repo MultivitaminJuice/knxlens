@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from knxrecon.web import create_app
+from knxlens.web import create_app
 from test_bcu1 import PA, run_read, bcu1_image
 
 
@@ -24,7 +24,7 @@ def test_pages_render(client):
     assert "M-0008_A-2032-12" in client.get("/").text
     page = client.get(f"/device/{PA}").text
     assert "KLSÜ-" in page
-    assert f"<title>{PA} · KNX-Rekonstruktion</title>" in page
+    assert f"<title>{PA} · knxlens</title>" in page
     assert client.get("/device/9.9.9").status_code == 404
     assert client.get("/compare").status_code == 404  # ohne Referenz
 
@@ -60,7 +60,7 @@ def test_note_rejects_unknown_fields(client):
 
 def test_web_never_imports_bus_code():
     """Die Oberfläche darf nicht senden können: keine Verbindung, kein Management."""
-    tree = ast.parse((Path(__file__).parents[1] / "knxrecon/web/__init__.py").read_text())
+    tree = ast.parse((Path(__file__).parents[1] / "knxlens/web/__init__.py").read_text())
     imported = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):

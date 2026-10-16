@@ -4,9 +4,9 @@ from fastapi.testclient import TestClient
 from xknx.dpt import DPTArray, DPTBinary
 from xknx.telegram import GroupAddress, IndividualAddress, Telegram, apci
 
-from knxrecon import monitor, traffic
-from knxrecon.model import Device
-from knxrecon.web import create_app
+from knxlens import monitor, traffic
+from knxlens.model import Device
+from knxlens.web import create_app
 from test_bcu1 import PA, bcu1_image, run_read
 
 

@@ -72,7 +72,7 @@ def build_installation(inp: ProjectInput) -> tuple[bytes, dict]:
     ns = _namespace(inp.catalog)
     pid = inp.project_id
     puid = Puid()
-    root = Element("KNX", xmlns=ns, CreatedBy="knxrecon", ToolVersion="0.1")
+    root = Element("KNX", xmlns=ns, CreatedBy="knxlens", ToolVersion="0.1")
     project = SubElement(root, "Project", Id=pid)
     inst = SubElement(SubElement(project, "Installations"), "Installation", Name="", BCUKey="4294967295")
     topo = SubElement(inst, "Topology")
@@ -225,10 +225,10 @@ def _co_ref(app: Application, ev: Evaluation | None, number: int) -> str | None:
 def project_xml(inp: ProjectInput, last_puid: int) -> bytes:
     ns = _namespace(inp.catalog)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.0000000Z")
-    root = Element("KNX", xmlns=ns, CreatedBy="knxrecon", ToolVersion="0.1")
+    root = Element("KNX", xmlns=ns, CreatedBy="knxlens", ToolVersion="0.1")
     project = SubElement(root, "Project", Id=inp.project_id)
     SubElement(project, "ProjectInformation", Name=inp.name, GroupAddressStyle="ThreeLevel", LastModified=now,
-               ProjectStart=now, Comment="Rekonstruiert mit knxrecon (rein lesend vom Bus)",
+               ProjectStart=now, Comment="Rekonstruiert mit knxlens (rein lesend vom Bus)",
                LastUsedPuid=str(last_puid), Guid=str(uuid.uuid4()))
     indent(root)
     return b'<?xml version="1.0" encoding="utf-8"?>\n' + tostring(root, encoding="utf-8")

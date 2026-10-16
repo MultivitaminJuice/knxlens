@@ -1,11 +1,11 @@
 """Einzelne Parameter eines Geräts im Detail: Typ, Ort, Rohbytes, Wert, Projektwert."""
 import re, sys
-from knxrecon import decode, param_compare, params
-from knxrecon.catalog import Catalog
-from knxrecon.store import Store
+from knxlens import decode, param_compare, params
+from knxlens.catalog import Catalog
+from knxlens.store import Store
 project, pa, pattern = sys.argv[1], sys.argv[2], sys.argv[3]
 mask = int(sys.argv[4], 0)
-s = Store("data/recon.sqlite"); c = Catalog(); c.add(project)
+s = Store("data/knxlens.sqlite"); c = Catalog(); c.add(project)
 pv = {re.sub(r"_R-\d+$", "", k): v for k, v in param_compare.project_values(project).get(pa, {}).items()}
 d = decode.decode_device(s, pa, mask); ap = params.AppParams(c.lookup(d)); raw = decode.Raw(s, pa)
 ev = params.evaluate_from_store(ap, raw)

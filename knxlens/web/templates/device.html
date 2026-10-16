@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ d.pa }} · KNX-Rekonstruktion{% endblock %}
+{% block title %}{{ d.pa }} · knxlens{% endblock %}
 {% block main %}
 <p class="sub"><a href="/">← Geräte</a></p>
 <h1 class="mono">{{ d.pa }}</h1>
@@ -70,7 +70,7 @@
 </div>
 <h2>Parameter</h2>
 {% if not ev %}
-<p class="muted">{% if app %}Parameterspeicher noch nicht gelesen – <span class="mono">knxrecon read-params {{ d.pa }} --products …</span>{% else %}Ohne Produktdaten nicht dekodierbar.{% endif %}</p>
+<p class="muted">{% if app %}Parameterspeicher noch nicht gelesen – <span class="mono">knxlens read-params {{ d.pa }} --products …</span>{% else %}Ohne Produktdaten nicht dekodierbar.{% endif %}</p>
 {% else %}
 {% set changed = ev.values|rejectattr('internal')|selectattr('from_device')|rejectattr('is_default')|list %}
 <p class="sub">{{ changed|length }} vom Standard abweichende Einstellungen ·

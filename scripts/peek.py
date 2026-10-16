@@ -1,12 +1,12 @@
 """Einzelne Speicherbereiche lesen (nur lesend, über den Guard)."""
 import asyncio, sys
 from xknx.telegram import IndividualAddress
-from knxrecon import bus
-from knxrecon.device import Reader
-from knxrecon.store import Store
+from knxlens import bus
+from knxlens.device import Reader
+from knxlens.store import Store
 
 async def main(gw, pa, ranges):
-    store = Store("data/recon.sqlite")
+    store = Store("data/knxlens.sqlite")
     async with bus.connect(gw) as xknx:
         store.start_session(gw, str(xknx.current_address), f"peek {pa}")
         async with xknx.management.connection(IndividualAddress(pa)) as conn:

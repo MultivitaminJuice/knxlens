@@ -1,10 +1,10 @@
 """Bedingungskette eines sichtbaren Parameters: welche choose-Werte führen dorthin?"""
 import re, sys
-from knxrecon import decode, param_compare, params
-from knxrecon.catalog import Catalog, _local
-from knxrecon.store import Store
+from knxlens import decode, param_compare, params
+from knxlens.catalog import Catalog, _local
+from knxlens.store import Store
 project, pa, text, mask = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4], 0)
-s = Store("data/recon.sqlite"); c = Catalog(); c.add(project)
+s = Store("data/knxlens.sqlite"); c = Catalog(); c.add(project)
 pv = {re.sub(r"_R-\d+$", "", k): v for k, v in param_compare.project_values(project).get(pa, {}).items()}
 d = decode.decode_device(s, pa, mask); ap = params.AppParams(c.lookup(d))
 ev = params.evaluate_from_store(ap, decode.Raw(s, pa))

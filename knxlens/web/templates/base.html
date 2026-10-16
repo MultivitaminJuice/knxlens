@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}KNX-Rekonstruktion{% endblock %}</title>
+  <title>{% block title %}knxlens{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header>
-    <span class="brand">KNX-Rekonstruktion</span>
+    <span class="brand">knxlens</span>
     <nav>
       {% set path = request.url.path %}
       <a href="/" class="{{ 'active' if path == '/' or path.startswith('/device') }}">Geräte</a>

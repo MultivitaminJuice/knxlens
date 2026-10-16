@@ -1,5 +1,5 @@
 [project]
-name = "knxrecon"
+name = "knxlens"
 version = "0.1.0"
 description = "KNX-Anlage ohne ETS-Projekt rein lesend rekonstruieren"
 requires-python = ">=3.11"
@@ -16,13 +16,13 @@ dependencies = [
 dev = ["pytest", "httpx"]
 
 [project.scripts]
-knxrecon = "knxrecon.cli:main"
+knxlens = "knxlens.cli:main"
 
 [tool.setuptools]
-packages = ["knxrecon", "knxrecon.web"]
+packages = ["knxlens", "knxlens.web"]
 
 [tool.setuptools.package-data]
-"knxrecon.web" = ["templates/*.html", "static/*"]
+"knxlens.web" = ["templates/*.html", "static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

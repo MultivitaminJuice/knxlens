@@ -6,11 +6,11 @@ from types import SimpleNamespace
 import pytest
 from xknx.telegram import GroupAddress, IndividualAddress, apci, tpci
 
-from knxrecon import bcu1
-from knxrecon.bus import ReadOnlyGuard
-from knxrecon.decode import decode_device
-from knxrecon.device import Reader
-from knxrecon.store import Store
+from knxlens import bcu1
+from knxlens.bus import ReadOnlyGuard
+from knxlens.decode import decode_device
+from knxlens.device import Reader
+from knxlens.store import Store
 
 PA = "1.1.5"
 GAS = ["1/0/1", "1/0/2", "3/1/7"]

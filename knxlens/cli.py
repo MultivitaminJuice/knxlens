@@ -1,4 +1,4 @@
-"""Kommandozeile: python -m knxrecon <befehl> ..."""
+"""Kommandozeile: python -m knxlens <befehl> ..."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from xknx.telegram import IndividualAddress
 from . import bus, compare, decode, device, monitor, reference, report, scan
 from .store import Store
 
-DEFAULT_DB = "data/recon.sqlite"
+DEFAULT_DB = "data/knxlens.sqlite"
 
 
 async def cmd_scan(args: argparse.Namespace) -> None:
@@ -143,7 +143,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(prog="knxrecon")
+    p = argparse.ArgumentParser(prog="knxlens")
     p.add_argument("-g", "--gateway", help="IP des KNX-IP-Interfaces (für Busbefehle)")
     p.add_argument("--db", default=DEFAULT_DB)
     p.add_argument("-v", "--verbose", action="store_true")
