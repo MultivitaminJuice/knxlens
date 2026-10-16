@@ -94,6 +94,13 @@ Gruppentelegramme loggen (Quelle, Ziel-GA, Dienst, Nutzdaten). Liefert reale
 Nutzung, Sender je GA und Hinweise auf den DPT. Erst Mac, später Raspberry Pi
 im Dauerbetrieb.
 
+**Stand 16.10.2026:** `knxrecon monitor [--duration s]` – eigener Tunnel, sendet
+nichts (Guard-Zähler 0). Auswertung `traffic.py`, Seite „Verkehr“ mit Live-Liste.
+Plausibilitätsprüfung: Telegramme ausgelesener Geräte müssen an GAs aus deren
+Adresstabelle gehen → Testanlage 0 Widersprüche. DPT-Vorschlag aus Nutzlastlänge
+gegen Referenz: 62/63 Erstvorschlag richtig (Fehlgriff: 3 Byte Uhrzeit/Datum).
+Fremder Sender 1.1.2 = gesperrter X1-Tunnel-Slot (vermutlich X1-Logik).
+
 ### 5 – Produktdaten und Parameter
 - Testanlage: Produktdaten stecken im Referenz-`.knxproj` (M-xxxx-Ordner).
 - Zielanlage: `.knxprod` aus KNX-Online-Katalog / Herstellerseiten.

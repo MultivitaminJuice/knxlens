@@ -49,6 +49,7 @@ class RefNames:
 
     ga: dict[str, str] = field(default_factory=dict)  # GA → Name
     co: dict[tuple[str, int], str] = field(default_factory=dict)  # (Ref-PA, Objektnummer) → Text
+    dpt: dict[str, dict] = field(default_factory=dict)  # GA → {"main": …, "sub": …}
 
 
 def load_names(path: str | Path) -> RefNames:
@@ -57,6 +58,8 @@ def load_names(path: str | Path) -> RefNames:
     for ga, g in proj["group_addresses"].items():
         if g.get("name"):
             names.ga[ga] = g["name"]
+        if g.get("dpt"):
+            names.dpt[ga] = g["dpt"]
     channels = {
         (pa, cid): ch.get("name", "")
         for pa, d in proj["devices"].items()

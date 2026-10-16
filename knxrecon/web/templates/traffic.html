@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Verkehr · KNX-Rekonstruktion{% endblock %}
+{% block main %}
+<h1>Busverkehr</h1>
+<p class="sub">Passiver Mitschnitt mit <span class="mono">knxrecon monitor</span>. Die Oberfläche liest nur die Datenbank.</p>
+
+<div class="stats">
+  <div class="stat"><b>{{ t.total }}</b><span>Telegramme</span></div>
+  <div class="stat"><b>{{ t.gas|length }}</b><span>Gruppenadressen gesehen</span></div>
+  <div class="stat"><b>{{ t.unobserved|length }}</b><span>aus Tabellen, noch nie gesehen</span></div>
+  <div class="stat"><b class="{{ 'bad' if t.violations else 'ok' }}">{{ t.violations|length }}</b><span>Widersprüche zu Tabellen</span></div>
+</div>
+{% if t.first %}<p class="sub">Zeitraum {{ time(t.first, true) }} – {{ time(t.last, true) }}</p>{% endif %}
+
+{% if t.violations %}
+<div class="notice">
+  <b class="bad">Widerspruch:</b> Diese Geräte senden an Gruppenadressen, die nicht in ihrer ausgelesenen Adresstabelle stehen – Lesedaten veraltet oder Dekodierfehler.
+  {% for src, ga, n in t.violations %}<div class="mono">{{ src }} → {{ ga }} ({{ n }}×)</div>{% endfor %}
+</div>
+{% else %}
+<div class="notice">Alle Telegramme ausgelesener Geräte gehen an Gruppenadressen aus deren Adresstabelle – passt zur Rekonstruktion.</div>
+{% endif %}
+{% if t.foreign_senders %}
+<div class="notice">Sender ohne ausgelesenes Gerät (Visualisierung, Logik, Tunnel, andere Linie):
+  {% for src, n in t.foreign_senders.most_common() %}<span class="chip mono">{{ src }} · {{ n }}×</span>{% endfor %}
+</div>
+{% endif %}
+
+<h2>Live <button type="button" data-live-toggle>Pause</button></h2>
+<div class="table-wrap" style="max-height: 320px; overflow-y: auto">
+<table>
+  <thead><tr><th>Zeit</th><th>Sender</th><th>GA</th><th>Name</th><th>Dienst</th><th>Wert</th></tr></thead>
+  <tbody data-live></tbody>
+</table>
+</div>
+
+<h2>Gruppenadressen im Verkehr</h2>
+<div class="toolbar">
+  <input type="search" placeholder="Filtern nach GA, Name, Sender …" data-filter="tbody[data-gas] tr">
+  <span class="muted"><span data-count></span> von {{ rows|length }}</span>
+</div>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>GA</th><th>Name</th><th class="num">Anzahl</th><th>zuletzt</th><th>Sender</th><th>letzter Wert</th><th>Größe</th><th>DPT</th></tr></thead>
+  <tbody data-gas>
+  {% for r in rows %}
+    {% set g = r.g %}
+    <tr>
+      <td class="addr"><a href="/gas?q={{ g.ga }}">{{ g.ga }}</a></td>
+      <td>{{ notes.get(g.ga, {}).get('name') or ref_names.get(g.ga, '') }}</td>
+      <td class="num">{{ g.count }}</td>
+      <td class="mono muted">{{ time(g.last) }}</td>
+      <td>{% for src, n in g.senders.most_common() %}
+        {% if src in devices %}<a class="mono" href="/device/{{ src }}">{{ src }}</a>{% else %}<span class="mono warn">{{ src }}</span>{% endif %}<span class="muted">{% if g.senders|length > 1 %} {{ n }}×{% endif %}</span>
+      {% endfor %}</td>
+      <td class="nowrap">{{ r.value }}</td>
+      <td class="muted nowrap">{{ g.size or '' }}</td>
+      <td class="nowrap">{% if r.dpt %}<span title="{{ dpt_names.get(r.dpt.main, '') }}">{{ r.dpt.main }}{% if r.dpt.sub %}.{{ '%03d' % r.dpt.sub }}{% endif %}</span> <span class="muted">{{ r.dpt_source }}</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if t.unobserved %}
+<details style="margin-top: 16px">
+  <summary>{{ t.unobserved|length }} Gruppenadressen aus den Tabellen noch nicht im Verkehr gesehen</summary>
+  <p>{% for ga in t.unobserved %}<a class="chip mono" href="/gas?q={{ ga }}">{{ ga }}</a>{% endfor %}</p>
+</details>
+{% endif %}
+{% endblock %}

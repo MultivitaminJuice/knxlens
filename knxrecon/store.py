@@ -18,8 +18,11 @@ CREATE TABLE IF NOT EXISTS read (            -- jede einzelne Leseanfrage
     session INTEGER, pa TEXT, service TEXT, args TEXT, data BLOB, error TEXT, ts REAL
 );
 CREATE TABLE IF NOT EXISTS telegram (        -- passiver Mitschnitt
-    session INTEGER, ts REAL, src TEXT, dst TEXT, service TEXT, payload BLOB
+    id INTEGER PRIMARY KEY, session INTEGER, ts REAL, src TEXT, dst TEXT, service TEXT,
+    payload BLOB,                            -- Nutzbytes (DPTArray)
+    bits INTEGER                             -- Kleinwert ≤ 6 Bit im APCI (DPTBinary)
 );
+CREATE INDEX IF NOT EXISTS telegram_dst ON telegram (dst);
 CREATE TABLE IF NOT EXISTS note (            -- Ergänzungen des Nutzers (nicht rekonstruierbar)
     kind TEXT, key TEXT, field TEXT, value TEXT, ts REAL,
     PRIMARY KEY (kind, key, field)
@@ -30,9 +33,28 @@ CREATE TABLE IF NOT EXISTS note (            -- Ergänzungen des Nutzers (nicht 
 class Store:
     def __init__(self, path: str | Path) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
+        self.db = sqlite3.connect(path, timeout=10)
+        # WAL: Monitor-Prozess schreibt, Weboberfläche liest gleichzeitig
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self._migrate()
         self.db.executescript(SCHEMA)
         self.session: int | None = None
+
+    def _migrate(self) -> None:
+        cols = [r[1] for r in self.db.execute("PRAGMA table_info(telegram)")]
+        if cols and "bits" not in cols:
+            # alte Form ohne id/bits; war bis hier nie befüllt
+            if self.db.execute("SELECT COUNT(*) FROM telegram").fetchone()[0]:
+                raise RuntimeError("telegram-Tabelle im alten Format enthält Daten – bitte prüfen")
+            self.db.execute("DROP TABLE telegram")
+
+    def add_telegrams(self, rows: list[tuple]) -> None:
+        """rows: (ts, src, dst, service, payload, bits)"""
+        self.db.executemany(
+            "INSERT INTO telegram (session, ts, src, dst, service, payload, bits) VALUES (?,?,?,?,?,?,?)",
+            [(self.session, *r) for r in rows],
+        )
+        self.db.commit()
 
     def start_session(self, gateway: str, own_address: str, note: str = "") -> int:
         cur = self.db.execute(

@@ -10,7 +10,7 @@ import json
 
 from xknx.telegram import IndividualAddress
 
-from . import bus, compare, decode, device, reference, report, scan
+from . import bus, compare, decode, device, monitor, reference, report, scan
 from .store import Store
 
 DEFAULT_DB = "data/recon.sqlite"
@@ -74,6 +74,10 @@ def cmd_report(args: argparse.Namespace) -> None:
         print(text)
 
 
+async def cmd_monitor(args: argparse.Namespace) -> None:
+    await monitor.run(args.gateway, Store(args.db), args.duration)
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -114,6 +118,10 @@ def main() -> None:
     s.add_argument("-o", "--out")
     s.set_defaults(func=cmd_report)
 
+    s = sub.add_parser("monitor", help="Gruppentelegramme passiv mitschneiden (sendet nichts)")
+    s.add_argument("--duration", type=float, help="Sekunden; ohne Angabe bis Strg-C")
+    s.set_defaults(func=cmd_monitor)
+
     s = sub.add_parser("serve", help="Weboberfläche (nur gespeicherte Daten, kein Buszugriff)")
     s.add_argument("--reference", help="xknxproject-JSON des Referenzprojekts (optional)")
     s.add_argument("--host", default="127.0.0.1")
@@ -129,7 +137,10 @@ def main() -> None:
         logging.getLogger("xknx").setLevel(logging.WARNING)
     result = args.func(args)
     if asyncio.iscoroutine(result):
-        asyncio.run(result)
+        try:
+            asyncio.run(result)
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@
       {% set path = request.url.path %}
       <a href="/" class="{{ 'active' if path == '/' or path.startswith('/device') }}">Geräte</a>
       <a href="/gas" class="{{ 'active' if path.startswith('/gas') }}">Gruppenadressen</a>
+      <a href="/traffic" class="{{ 'active' if path.startswith('/traffic') }}">Verkehr</a>
       {% if has_ref %}<a href="/compare" class="{{ 'active' if path.startswith('/compare') }}">Abgleich</a>{% endif %}
     </nav>
     <form method="post" action="/api/reload"><button title="Daten aus der Datenbank neu dekodieren">Neu laden</button></form>

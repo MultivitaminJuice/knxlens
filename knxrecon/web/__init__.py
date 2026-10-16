@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from xknx.telegram import GroupAddress
 
-from .. import compare, decode, device, reference
+from .. import compare, decode, device, reference, traffic
 from ..model import Device
 from ..report import MASK_NAMES
 from ..store import Store
@@ -77,9 +78,22 @@ class State:
                 out.setdefault(ga, []).append((d, num))
         return dict(sorted(out.items(), key=lambda kv: GroupAddress(kv[0]).raw))
 
+    def dpt_for(self, ga: str, size: str | None) -> tuple[dict | None, str]:
+        """DPT für die Wertanzeige: Referenz, sonst Vorschlag aus der Nutzlastgröße."""
+        if ga in self.names.dpt:
+            return self.names.dpt[ga], "Referenz"
+        guess = traffic.SIZE_GUESS.get(size or "", ())
+        return ({"main": guess[0], "sub": None}, "Vorschlag") if guess else (None, "")
+
     def co_text(self, pa: str, number: int) -> str:
         r = self.ref_of(pa)
         return self.names.co.get((r.pa, number), "") if r else ""
+
+
+def _time(ts: float | None, with_date: bool = False) -> str:
+    if not ts:
+        return ""
+    return datetime.fromtimestamp(ts).strftime("%d.%m. %H:%M:%S" if with_date else "%H:%M:%S")
 
 
 class NoteIn(BaseModel):
@@ -95,7 +109,9 @@ def create_app(db_path: str, ref_path: str | None = None) -> FastAPI:
     app = FastAPI(title="KNX-Rekonstruktion", docs_url=None, redoc_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
-    templates.env.globals.update(mask_name=lambda m: MASK_NAMES.get(m, "?"), has_ref=bool(ref_path))
+    templates.env.globals.update(
+        mask_name=lambda m: MASK_NAMES.get(m, "?"), has_ref=bool(ref_path), time=_time, dpt_names=traffic.DPT_NAMES
+    )
 
     def render(request: Request, name: str, **ctx) -> HTMLResponse:
         return templates.TemplateResponse(request, name, ctx)
@@ -154,6 +170,41 @@ def create_app(db_path: str, ref_path: str | None = None) -> FastAPI:
         }
         return render(request, "compare.html", devices=devices, matches=state.matches, missing=missing,
                       totals=totals, ref_names=state.names.ga)
+
+    @app.get("/traffic", response_class=HTMLResponse)
+    def traffic_page(request: Request):
+        store = state.store()
+        t = traffic.analyse(store.db, state.devices)
+        rows = []
+        for ga, g in sorted(t.gas.items(), key=lambda kv: GroupAddress(kv[0]).raw):
+            dpt, source = state.dpt_for(ga, g.size)
+            rows.append({"g": g, "dpt": dpt, "dpt_source": source,
+                         "value": traffic.format_value(g.last_payload, g.last_bits, dpt)})
+        return render(request, "traffic.html", t=t, rows=rows, notes=store.notes("ga"), ref_names=state.names.ga,
+                      devices=state.devices)
+
+    @app.get("/api/telegrams")
+    def telegrams(after: int = 0, limit: int = 50):
+        """Neueste Telegramme für die Live-Liste (nur lesen aus der DB)."""
+        store = state.store()
+        limit = max(1, min(limit, 200))
+        cur = store.db.execute(
+            "SELECT id, ts, src, dst, service, payload, bits FROM telegram WHERE id > ? ORDER BY id DESC LIMIT ?",
+            (after, limit),
+        )
+        notes = store.notes("ga")
+        out = []
+        for id_, ts, src, dst, service, payload, bits in cur:
+            dpt, source = state.dpt_for(dst, traffic.size_of(payload, bits, bits or 0))
+            out.append({
+                "id": id_, "time": _time(ts), "src": src, "dst": dst,
+                "src_known": src in state.devices,
+                "name": notes.get(dst, {}).get("name") or state.names.ga.get(dst, ""),
+                "service": {"GroupValueWrite": "Schreiben", "GroupValueResponse": "Antwort",
+                            "GroupValueRead": "Lesen"}.get(service, service),
+                "value": traffic.format_value(payload, bits, dpt), "dpt_source": source,
+            })
+        return {"telegrams": out}
 
     @app.post("/api/note")
     def set_note(note: NoteIn):
