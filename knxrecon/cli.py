@@ -7,6 +7,7 @@ import asyncio
 import logging
 
 import json
+from pathlib import Path
 
 from xknx.telegram import IndividualAddress
 
@@ -85,7 +86,11 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
     if args.host not in ("127.0.0.1", "localhost"):
         print(f"Achtung: Oberfläche ohne Anmeldung unter {args.host}:{args.port} erreichbar.")
-    uvicorn.run(create_app(args.db, args.reference), host=args.host, port=args.port, log_level="warning")
+    folder = Path(args.products_dir)
+    products = sorted(str(p) for pattern in ("*.knxprod", "*.vd?") for p in folder.glob(pattern)) + (args.products or [])
+    if products:
+        print(f"Produktdaten: {len(products)} Datei(en)")
+    uvicorn.run(create_app(args.db, args.reference, products), host=args.host, port=args.port, log_level="warning")
 
 
 def main() -> None:
@@ -124,6 +129,8 @@ def main() -> None:
 
     s = sub.add_parser("serve", help="Weboberfläche (nur gespeicherte Daten, kein Buszugriff)")
     s.add_argument("--reference", help="xknxproject-JSON des Referenzprojekts (optional)")
+    s.add_argument("--products", action="append", help=".knxprod/.knxproj mit Produktdaten (mehrfach möglich)")
+    s.add_argument("--products-dir", default="data/produkte", help="Ordner, dessen *.knxprod/*.vd? automatisch geladen werden")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8765)
     s.set_defaults(func=cmd_serve)

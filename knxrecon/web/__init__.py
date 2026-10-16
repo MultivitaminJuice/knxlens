@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from xknx.telegram import GroupAddress
 
-from .. import compare, decode, device, reference, traffic
+from .. import catalog, compare, decode, device, reference, traffic
 from ..model import Device
 from ..report import MASK_NAMES
 from ..store import Store
@@ -43,6 +43,9 @@ class Match:
 class State:
     db_path: str
     ref_path: str | None
+    product_paths: list[str] = field(default_factory=list)
+    catalog: catalog.Catalog = field(default_factory=catalog.Catalog)
+    ga_dpt: dict[str, dict] = field(default_factory=dict)
     devices: dict[str, Device] = field(default_factory=dict)
     refs: dict[str, reference.RefDevice] = field(default_factory=dict)
     names: reference.RefNames = field(default_factory=reference.RefNames)
@@ -56,6 +59,10 @@ class State:
         store = self.store()
         decoded = [decode.decode_device(store, pa, m) for pa, m in store.found_devices() if device.supported(m)]
         self.devices = {d.pa: d for d in decoded if d.app_id or d.links}
+        self.catalog = catalog.Catalog()
+        for path in self.product_paths:
+            self.catalog.add(path)
+        self.ga_dpt = catalog.ga_dpts(list(self.devices.values()), self.catalog)
         self.matches = {}
         if self.ref_path:
             self.refs = reference.load(self.ref_path)
@@ -78,22 +85,52 @@ class State:
                 out.setdefault(ga, []).append((d, num))
         return dict(sorted(out.items(), key=lambda kv: GroupAddress(kv[0]).raw))
 
+    def product(self, pa: str) -> catalog.Application | None:
+        d = self.devices.get(pa)
+        return self.catalog.lookup(d) if d else None
+
+    def product_name(self, pa: str) -> str:
+        app = self.product(pa)
+        return app.products[0][0] if app and app.products else (app.name if app else "")
+
     def dpt_for(self, ga: str, size: str | None) -> tuple[dict | None, str]:
-        """DPT für die Wertanzeige: Referenz, sonst Vorschlag aus der Nutzlastgröße."""
+        """DPT für die Wertanzeige: Referenz → Produktdaten → Vorschlag aus der Nutzlastgröße."""
         if ga in self.names.dpt:
             return self.names.dpt[ga], "Referenz"
+        if ga in self.ga_dpt:
+            return self.ga_dpt[ga], "Produktdaten"
         guess = traffic.SIZE_GUESS.get(size or "", ())
         return ({"main": guess[0], "sub": None}, "Vorschlag") if guess else (None, "")
 
     def co_text(self, pa: str, number: int) -> str:
+        """Objekttext: aus der Referenz, sonst aus den Produktdaten (bei Varianten der erste + Anzahl)."""
         r = self.ref_of(pa)
-        return self.names.co.get((r.pa, number), "") if r else ""
+        if r and (text := self.names.co.get((r.pa, number))):
+            return text
+        variants = self.variants(pa, number)
+        if not variants:
+            return ""
+        more = f" (+{len(variants) - 1} Varianten)" if len(variants) > 1 else ""
+        return variants[0].label + more
+
+    def variants(self, pa: str, number: int) -> list[catalog.ObjectVariant]:
+        app = self.product(pa)
+        if app is None:
+            return []
+        obj = next((o for o in self.devices[pa].objects if o.number == number), None)
+        return app.variants(number, obj)
 
 
 def _time(ts: float | None, with_date: bool = False) -> str:
     if not ts:
         return ""
     return datetime.fromtimestamp(ts).strftime("%d.%m. %H:%M:%S" if with_date else "%H:%M:%S")
+
+
+def _fmt_dpt(dpt: dict | None) -> str:
+    if not dpt:
+        return ""
+    return f"{dpt['main']}.{dpt['sub']:03d}" if dpt.get("sub") is not None else str(dpt["main"])
 
 
 class NoteIn(BaseModel):
@@ -103,14 +140,15 @@ class NoteIn(BaseModel):
     value: str
 
 
-def create_app(db_path: str, ref_path: str | None = None) -> FastAPI:
-    state = State(db_path, ref_path)
+def create_app(db_path: str, ref_path: str | None = None, product_paths: list[str] | None = None) -> FastAPI:
+    state = State(db_path, ref_path, list(product_paths or []))
     state.load()
     app = FastAPI(title="KNX-Rekonstruktion", docs_url=None, redoc_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.globals.update(
-        mask_name=lambda m: MASK_NAMES.get(m, "?"), has_ref=bool(ref_path), time=_time, dpt_names=traffic.DPT_NAMES
+        mask_name=lambda m: MASK_NAMES.get(m, "?"), has_ref=bool(ref_path), time=_time, dpt_names=traffic.DPT_NAMES,
+        product_name=state.product_name, fmt_dpt=_fmt_dpt,
     )
 
     def render(request: Request, name: str, **ctx) -> HTMLResponse:
@@ -138,13 +176,15 @@ def create_app(db_path: str, ref_path: str | None = None) -> FastAPI:
         for num, ga in d.links:
             by_obj.setdefault(num, []).append(ga)
         numbers = sorted(set(by_obj) | {o.number for o in d.objects if o.communication})
+        app = state.product(pa)
         rows = [
             {"number": n, "obj": objs.get(n), "gas": sorted(by_obj.get(n, []), key=lambda g: GroupAddress(g).raw),
-             "text": state.co_text(pa, n)}
+             "text": state.co_text(pa, n), "variants": state.variants(pa, n),
+             "dpt": app.object_dpt(n, objs.get(n)) if app else None}
             for n in numbers
         ]
         return render(
-            request, "device.html", d=d, rows=rows, match=state.matches.get(pa),
+            request, "device.html", d=d, rows=rows, match=state.matches.get(pa), app=app,
             note=state.store().notes("device").get(pa, {}), ga_notes=state.store().notes("ga"),
             ref_names=state.names.ga,
         )

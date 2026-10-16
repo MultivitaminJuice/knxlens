@@ -20,7 +20,7 @@
 <div class="table-wrap">
 <table>
   <thead><tr>
-    <th>PA</th><th>Name</th><th>Raum</th><th>Typ</th><th>Applikation</th>
+    <th>PA</th><th>Name</th><th>Raum</th><th>Typ</th><th>Produkt</th><th>Applikation</th>
     {% if has_ref %}<th>Referenzgerät</th>{% endif %}
     <th class="num">GAs</th><th class="num">Verkn.</th><th>Hinweise</th>
   </tr></thead>
@@ -33,6 +33,7 @@
       <td><input class="note" data-kind="device" data-key="{{ d.pa }}" data-field="name" value="{{ n.get('name', '') }}"></td>
       <td><input class="note" data-kind="device" data-key="{{ d.pa }}" data-field="room" value="{{ n.get('room', '') }}"></td>
       <td class="muted nowrap">{{ mask_name(d.mask) }}</td>
+      <td>{% set pn = product_name(d.pa) %}{% if pn %}<span class="clip" title="{{ pn }}">{{ pn }}</span>{% else %}<span class="muted">keine Produktdaten</span>{% endif %}</td>
       <td class="mono">{{ d.app_id or '?' }}</td>
       {% if has_ref %}<td>{% if m and m.ref %}<span class="clip" title="{{ m.ref.name }}">{{ m.ref.name }}</span>{% if m.ref.pa != d.pa %} <span class="chip warn">war {{ m.ref.pa }}</span>{% endif %}{% else %}<span class="muted">–</span>{% endif %}</td>{% endif %}
       <td class="num">{{ d.group_addresses|length }}</td>

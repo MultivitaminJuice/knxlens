@@ -108,6 +108,22 @@ Fremder Sender 1.1.2 = gesperrter X1-Tunnel-Slot (vermutlich X1-Logik).
 - Erst Objektnamen und DPTs (einfach), dann Parameter über Offset/Bit (schwer:
   Sichtbarkeit hängt von Bedingungen im Dynamic-Baum ab).
 
+**Stand 16.10.2026:** `catalog.py` liest Produktdaten (.knxprod oder Produktteil einer
+.knxproj; defusedxml, Größengrenzen) und ordnet über die Applikations-ID zu: Produktname,
+Bestellnummer, Objekttexte (de-DE bevorzugt), Größe, Flags, DPT. Objektvarianten je
+Nummer (parameterabhängig) bleiben Kandidaten, eingegrenzt durch Bus-Größe/Flags.
+GA-DPT = gemeinsamer DPT der verknüpften Objekte. Testanlage, nur Produktteil genutzt:
+Text immer unter Kandidaten (474/474), Objekt-DPT 327/328 (Abweichung = manuelle
+ETS-Änderung im Projekt), GA-DPT 295/295 Haupttyp richtig. Modulobjekte (MDT) fehlen noch.
+Oberfläche: `serve --products …`, Ordner `data/produkte/` wird automatisch geladen.
+
+**Bezugsquellen Zielanlage (Recherche):** Für alte Gira-Geräte gibt es keine .knxprod,
+nur VD2/VD4-Datenbanken (teils mit Plug-in, z. B. Tastsensor 2 plus) im Gira-Downloadbereich.
+Laut KNX sind .vd* Container mit XML – ob unser Parser sie direkt liest, zeigt erst eine
+echte Datei. Rückfall: ETS6 importiert/konvertiert VD-Dateien (KnxCvNext); dann leeres
+Projekt mit den Produkten exportieren → Produktteil laden. Eibmarkt verweist für die
+Aktoren auf eibmarkt.de. **Jeder Download nur nach Freigabe (Datei, Quelle, Größe).**
+
 ### 6 – Export
 1. CSV/Markdown (immer).
 2. **ETS-Gruppenadressen-Import** (CSV/XML) – von der ETS offiziell unterstützt,
