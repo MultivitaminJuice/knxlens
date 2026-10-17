@@ -37,6 +37,7 @@ export interface ProjectInfo {
   devices: number
   group_addresses: number
   links: number
+  orphans: number
   space_types: Record<string, string>
   space_root: string[]
   media: Record<string, string>
@@ -93,18 +94,31 @@ export interface GaDetail {
   users: { uid: string; pa: string | null; device: string; ref: string; number: number | null; object: string; sending: boolean }[]
 }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  status: number
+  detail: unknown
+  constructor(message: string, status = 0, detail: unknown = null) {
+    super(message)
+    this.status = status
+    this.detail = detail
+  }
+}
+
+export interface Orphan { ref: string; number: number; text: string; gas: string[] }
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
   if (!res.ok) {
     let msg = `${res.status}`
+    let detail: unknown = null
     try {
-      msg = (await res.json()).detail ?? msg
+      detail = (await res.json()).detail ?? null
+      if (typeof detail === 'string') msg = detail
+      else if (detail && typeof detail === 'object' && 'message' in detail) msg = String((detail as { message: unknown }).message)
     } catch {
       /* keine JSON-Antwort */
     }
-    throw new ApiError(msg)
+    throw new ApiError(msg, res.status, detail)
   }
   return res.json() as Promise<T>
 }
@@ -117,8 +131,10 @@ export const api = {
   tree: (kind: 'topology' | 'buildings' | 'groupaddresses') => get<TreeNode[]>(`/api/tree/${kind}`),
   device: (uid: string) => get<DeviceDetail>(`/api/device/${encodeURIComponent(uid)}`),
   ga: (address: string) => get<GaDetail>(`/api/ga/${address}`),
-  setParam: (uid: string, id: string, value: string | null) =>
-    send<DeviceDetail>('PUT', `/api/device/${encodeURIComponent(uid)}/param`, { id, value }),
+  setParam: (uid: string, id: string, value: string | null, orphans: 'ask' | 'keep' | 'unlink' = 'ask') =>
+    send<DeviceDetail>('PUT', `/api/device/${encodeURIComponent(uid)}/param`, { id, value, orphans }),
+  orphans: () => get<{ uid: string; pa: string | null; name: string; orphans: Orphan[] }[]>('/api/orphans'),
+  unlinkOrphans: (uids: string[] | null) => send<{ unlinked: number }>('POST', '/api/orphans/unlink', { uids }),
   save: () => send<{ saved: string }>('POST', '/api/project/save'),
   op: <T = unknown>(op: string, args: Record<string, unknown>) =>
     send<{ result: T; undo: string | null }>('POST', '/api/op', { op, args }),

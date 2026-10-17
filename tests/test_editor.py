@@ -80,3 +80,21 @@ def test_topology_buildings_and_products(client, tmp_path):
     assert r.status_code == 200 and r.json()["products"][0]["name"] == "Tastsensor 2 plus"
     assert client.post("/api/products", content=b"kaputt").status_code == 422
     assert client.get("/api/project").json()["dirty"]
+
+
+def test_param_change_asks_before_orphaning(client, monkeypatch):
+    from knxlens import editor as ed
+    effect = [{"ref": "O-0_R-1", "number": 0, "text": "Taste 1", "gas": ["1/1/2", "1/1/1"]}]
+    monkeypatch.setattr(ed, "param_change_effect", lambda ap, d, i, v: effect)
+    monkeypatch.setattr(ed, "set_param", lambda ap, d, i, v: True)
+    monkeypatch.setattr(ed, "rebind_variants", lambda ap, d: 0)
+    url = "/api/device/P-0123-0_DI-1/param"
+    r = client.put(url, json={"id": "x", "value": "1"})
+    assert r.status_code == 409 and r.json()["detail"]["orphans"] == effect
+    assert not client.get("/api/project").json()["dirty"]  # nichts geändert
+    r = client.put(url, json={"id": "x", "value": "1", "orphans": "keep"})
+    assert r.status_code == 200 and any(o["gas"] for o in r.json()["objects"] if o["number"] == 0)
+    r = client.put(url, json={"id": "x", "value": "1", "orphans": "unlink"})
+    assert r.status_code == 200 and not any(o["number"] == 0 and o["gas"] for o in r.json()["objects"])
+    client.post("/api/undo")
+    assert any(o["number"] == 0 and o["gas"] for o in client.get("/api/device/P-0123-0_DI-1").json()["objects"])

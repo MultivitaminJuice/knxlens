@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { NInput, NModal, NSwitch } from 'naive-ui'
+import { computed, h, ref, watch } from 'vue'
+import { NInput, NModal, NSwitch, useDialog } from 'naive-ui'
 import ParamField from './ParamField.vue'
-import { api, ApiError, type DeviceDetail } from '../api'
+import { api, ApiError, type DeviceDetail, type Orphan } from '../api'
 import { loadAll, store } from '../store'
 
 const detail = ref<DeviceDetail | null>(null)
@@ -10,6 +10,32 @@ const page = ref<string>('')
 const search = ref('')
 const onlyChanged = ref(false)
 const busy = ref(false)
+const dialog = useDialog()
+
+// Rückfrage, wenn eine Änderung Objekte mit Gruppenadressen wegfallen lässt
+function askOrphans(message: string, list: Orphan[]): Promise<'unlink' | 'keep' | null> {
+  return new Promise((resolve) => {
+    let answered = false
+    const done = (v: 'unlink' | 'keep' | null) => { if (!answered) { answered = true; resolve(v) } }
+    const d = dialog.warning({
+      title: message,
+      content: () => h('div', { class: 'orphans' }, [
+        h('p', 'Diese Objekte gibt es nach der Änderung nicht mehr:'),
+        h('ul', list.map((o) => h('li', [h('b', `${o.number} `), o.text, h('span', { class: 'muted' }, ` → ${o.gas.join(', ')}`)]))),
+        h('p', { class: 'muted' }, '„Lösen“ entfernt die Zuordnungen. „Behalten“ lässt sie als inaktiv stehen – sie werden nicht ins Gerät geladen und kommen zurück, wenn du die Einstellung zurücknimmst.'),
+      ]),
+      closable: true,
+      maskClosable: false,
+      action: () => h('div', { class: 'acts' }, [
+        h('button', { class: 'btn', onClick: () => { done(null); d.destroy() } }, 'Abbrechen'),
+        h('button', { class: 'btn', onClick: () => { done('keep'); d.destroy() } }, 'Behalten'),
+        h('button', { class: 'btn danger', onClick: () => { done('unlink'); d.destroy() } }, 'Zuordnungen lösen'),
+      ]),
+      onClose: () => done(null),
+      onAfterLeave: () => done(null),
+    })
+  })
+}
 
 const show = computed({
   get: () => !!store.paramsFor,
@@ -74,7 +100,18 @@ async function change(id: string, value: string | null) {
   busy.value = true
   try {
     const before = pages.value.length
-    detail.value = await api.setParam(detail.value.uid, id, value)
+    try {
+      detail.value = await api.setParam(detail.value.uid, id, value)
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 409)) throw e
+      const choice = await askOrphans(e.message, (e.detail as { orphans: Orphan[] }).orphans)
+      if (!choice) {
+        detail.value = await api.device(detail.value.uid) // Feld auf den alten Wert zurück
+        return
+      }
+      detail.value = await api.setParam(detail.value.uid, id, value, choice)
+      store.notify('info', choice === 'unlink' ? 'Zuordnungen gelöst' : 'Zuordnungen bleiben als inaktiv stehen')
+    }
     if (!pages.value.some((p) => p.title === page.value)) page.value = pages.value[0]?.title ?? ''
     const diff = pages.value.length - before
     if (diff) store.notify('info', diff > 0 ? `${diff} Parameterseite(n) eingeblendet` : `${-diff} Parameterseite(n) ausgeblendet`)
@@ -134,4 +171,9 @@ async function change(id: string, value: string | null) {
 .field.changed .name { font-weight: 600; }
 .name { display: flex; flex-direction: column; font-size: 13px; }
 .pageref, .def { font-size: 11px; font-weight: 400; }
+:global(.orphans ul) { margin: 6px 0; padding-left: 18px; font-size: 13px; }
+:global(.orphans li) { margin: 2px 0; }
+:global(.acts) { display: flex; gap: 8px; justify-content: flex-end; }
+:global(.acts .btn) { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 4px; border: 1px solid var(--kl-border); background: var(--kl-bg); color: var(--kl-text); cursor: pointer; }
+:global(.acts .btn.danger) { background: #d03050; border-color: #d03050; color: #fff; }
 </style>

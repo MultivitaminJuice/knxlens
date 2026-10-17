@@ -69,3 +69,18 @@ def test_validation_errors(tmp_path):
     with pytest.raises(EditError, match="nicht änderbar"):
         set_param(ap, d, internal.instance_id, "3")
     assert d.params == {}  # fehlgeschlagene Änderungen hinterlassen nichts
+
+
+def test_orphans_and_rebind():
+    from types import SimpleNamespace
+    from knxlens.project import ComLink, Device
+    from knxlens.project.edit import orphans, rebind_variants, unlink_orphans
+    full = "M-0008_A-1-1-AAAA"
+    app = SimpleNamespace(full_id=full, ref_number={f"{full}_O-0_R-1": 0, f"{full}_O-0_R-2": 0, f"{full}_O-1_R-3": 1},
+                          variant_by_ref={})
+    ev = SimpleNamespace(active_cos={0: f"{full}_O-0_R-2"})  # Objekt 0 in anderer Variante aktiv, 1 inaktiv
+    ap = SimpleNamespace(app=app, evaluate_values=lambda values: ev)
+    d = Device("D", 1, 1, 1, "P", "H", links=[ComLink("O-0_R-1", ["1/1/1"], 0), ComLink("O-1_R-3", ["1/1/2"], 1)])
+    assert [o["number"] for o in orphans(ap, d)] == [1]
+    assert rebind_variants(ap, d) == 1 and d.links[0].ref == "O-0_R-2"  # GA wandert mit
+    assert unlink_orphans(ap, d) == 1 and [l.ref for l in d.links] == ["O-0_R-2"]

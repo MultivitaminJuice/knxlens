@@ -92,3 +92,9 @@ def test_assign_sets_hidden_switch(tmp_path):
     ap = _gated_app(tmp_path / "b", with_assign=True)
     img = param_image(ap, {f"{APP}_P-1_R-1": "0"})  # Assign setzt den Schalter auf 1 → P-3
     assert img.segments[SEG][2:4] == b"\x01\x2c" and img.defined(SEG, 4, ap)
+
+
+def test_tables_skip_inactive_objects():
+    t = tables(_dev(), 0x0705, active={0, 3})  # Objekt 1 inaktiv
+    assert t.addresses == ["1/1/1", "1/1/2"] and (1, 1) not in [(a, b) for a, b in t.associations]
+    assert any("Objekt 1 ist inaktiv" in p for p in t.problems)

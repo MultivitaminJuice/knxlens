@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { NButton, NInput, NSelect, NSwitch, NTag } from 'naive-ui'
-import { run, store } from '../store'
+import { api } from '../api'
+import { loadAll, run, store } from '../store'
 
 const first = computed(() => store.selection[0] ?? null)
 const many = computed(() => store.selection.length > 1)
@@ -39,6 +40,18 @@ const mediaOptions = computed(() => Object.entries(store.project?.media ?? {}).m
 function setMedium(medium: string) {
   const i = first.value
   if (i?.kind === 'line' && medium !== i.medium) run('line_update', { area: i.area, line: i.line, medium }, 'Medium geändert')
+}
+const orphanCount = computed(() => (store.device?.objects ?? []).filter((o) => !o.active && o.gas.length).length)
+async function unlinkOrphans() {
+  if (!store.device) return
+  store.busy = true
+  try {
+    const r = await api.unlinkOrphans([store.device.uid])
+    await loadAll()
+    store.notify('success', `${r.unlinked} Zuordnung(en) gelöst – ⌘Z macht es rückgängig`)
+  } finally {
+    store.busy = false
+  }
 }
 const spaceDevices = computed(() => (first.value?.children ?? []).filter((c) => c.kind === 'device').length)
 
@@ -114,6 +127,10 @@ const objectLinks = computed(() => {
     <template v-else-if="store.device && first">
       <h3><span class="mono">{{ store.device.pa || '–' }}</span> Gerät</h3>
       <p class="muted">{{ store.device.product }}</p>
+      <div v-if="orphanCount" class="warnbox">
+        {{ orphanCount }} inaktive(s) Objekt(e) mit Gruppenadressen – werden nicht ins Gerät geladen.
+        <NButton size="tiny" type="error" secondary @click="unlinkOrphans">Zuordnungen lösen</NButton>
+      </div>
       <label>Name<NInput v-model:value="form.devName" size="small" :placeholder="store.device.product" @blur="commit('devName')" @keyup.enter="commit('devName')" /></label>
       <label>Physikalische Adresse<NInput v-model:value="form.devPa" size="small" class="mono" @blur="commit('devPa')" @keyup.enter="commit('devPa')" /></label>
       <label>Beschreibung<NInput v-model:value="form.devDesc" size="small" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" @blur="commit('devDesc')" /></label>
@@ -194,4 +211,6 @@ p { margin: 0; }
 .keys { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 4px 0 0; font-size: 12px; }
 .keys dt { font-family: var(--kl-mono); color: var(--kl-text); }
 .keys dd { margin: 0; color: var(--kl-muted); }
+.warnbox { font-size: 12px; background: #fdf0e6; color: #8a4b0f; border: 1px solid #f0c9a4; border-radius: 6px; padding: 6px 8px; margin: 6px 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+@media (prefers-color-scheme: dark) { .warnbox { background: #3a2a1a; color: #f3c89b; border-color: #6b4a2a; } }
 </style>

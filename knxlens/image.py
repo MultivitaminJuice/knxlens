@@ -194,24 +194,31 @@ class Tables:
     problems: list[str] = field(default_factory=list)
 
 
-def tables(device, mask: int | None, number_of=None) -> Tables:
+def tables(device, mask: int | None, number_of=None, active: set[int] | None = None) -> Tables:
     """Tabellen aus den Verknüpfungen des Projekts.
 
     System 7/BCU: Kopf 1 Byte, Eintrag 0 der Adresstabelle = eigene PA, Assoziation 1+1 Byte.
     System B: Kopf 2 Byte, keine PA, Assoziation 2+2 Byte.
     number_of(link) → Objektnummer, falls die Verknüpfung keine gespeichert hat (ETS-Import).
+    active: Nummern der laut Parametern aktiven Objekte – Zuordnungen an inaktiven Objekten
+    („verwaist“) kommen nicht ins Gerät, ihre GAs auch nicht in die Adresstabelle.
     """
     from xknx.telegram import GroupAddress, IndividualAddress
 
     problems = []
-    gas = sorted({g for link in device.links for g in link.gas}, key=lambda a: GroupAddress(a).raw)
-    index = {g: i + 1 for i, g in enumerate(gas)}
-    assoc = []
+    links = []
     for link in device.links:
         number = link.number if link.number is not None else (number_of(link) if number_of else None)
         if number is None:
             problems.append(f"Objekt {link.ref}: Nummer unbekannt")
-            continue
+        elif active is not None and number not in active:
+            problems.append(f"Objekt {number} ist inaktiv – {len(link.gas)} Zuordnung(en) nicht übernommen")
+        else:
+            links.append((number, link))
+    gas = sorted({g for _, link in links for g in link.gas}, key=lambda a: GroupAddress(a).raw)
+    index = {g: i + 1 for i, g in enumerate(gas)}
+    assoc = []
+    for number, link in links:
         assoc += [(rank, number, index[g]) for rank, g in enumerate(link.gas)]
     # Reihenfolge wie die ETS: erst je Objekt die sendende GA (nach Objektnummer), dann die übrigen
     # (gegen 40 Geräte geprüft: 80/80 Tabellen byte-genau gleich)
@@ -284,7 +291,8 @@ def check_against_store(ap: AppParams | None, device, store, mask: int | None, n
                     c.param_diff.append((sid, off, mem[base + off], buf[off], owners))
 
     if mask is not None and mask not in (0x0010, 0x0011, 0x0012, 0x0013):
-        t = tables(device, mask, number_of)
+        active = set(ap.evaluate_values(device.params).active_cos) if ap is not None else None
+        t = tables(device, mask, number_of, active)
         c.problems += t.problems
         objs = _objects(raw)
         head = 2 if mask == SYSTEM_B else 1

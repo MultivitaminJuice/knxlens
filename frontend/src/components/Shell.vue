@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Rahmen: Kopfleiste, frei anordenbare Fenster (dockview), Dialoge, Tastenkürzel.
-import { computed, markRaw, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
-import { NButton, NDropdown, useMessage, useOsTheme, type DropdownOption } from 'naive-ui'
+import { computed, h, markRaw, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { NButton, NDropdown, useDialog, useMessage, useOsTheme, type DropdownOption } from 'naive-ui'
+import { api as http } from '../api'
 import { DockviewVue, themeGithubDark, themeGithubLight, type DockviewApi, type DockviewReadyEvent } from 'dockview-vue'
 import 'dockview-vue/dist/styles/dockview.css'
 import DockPane from './DockPane.vue'
@@ -11,6 +12,29 @@ import CommandPalette from './CommandPalette.vue'
 import { loadAll, panes, redo, save, store, undo, VIEW_TITLES, type TreeKind } from '../store'
 
 const message = useMessage()
+const dialog = useDialog()
+
+async function showOrphans() {
+  const list = await http.orphans()
+  const d = dialog.warning({
+    title: 'Verwaiste Zuordnungen',
+    content: () => h('div', { class: 'orphans' }, [
+      h('p', 'Diese Gruppenadressen hängen an Objekten, die es bei den aktuellen Parametern nicht gibt. Sie werden nicht ins Gerät geladen.'),
+      ...list.map((dev) => h('div', [
+        h('b', `${dev.pa ?? '–'} ${dev.name}`),
+        h('ul', dev.orphans.map((o) => h('li', [`${o.number} ${o.text}`, h('span', { class: 'muted' }, ` → ${o.gas.join(', ')}`)]))),
+      ])),
+    ]),
+    positiveText: 'Alle lösen',
+    negativeText: 'Schließen',
+    onPositiveClick: async () => {
+      const r = await http.unlinkOrphans(null)
+      await loadAll()
+      store.notify('success', `${r.unlinked} Zuordnung(en) gelöst – ⌘Z macht es rückgängig`)
+      d.destroy()
+    },
+  })
+}
 store.notify = (type, text) => message[type](text, { duration: type === 'error' ? 5000 : 2500 })
 
 const os = useOsTheme()
@@ -164,6 +188,9 @@ onBeforeUnmount(() => {
       <span v-if="store.project" class="proj">{{ store.project.name }}</span>
       <span v-if="store.project" class="muted stats">{{ store.project.devices }} Geräte · {{ store.project.group_addresses }} GAs · {{ store.project.links }} Verknüpfungen</span>
       <span class="spacer" />
+      <button v-if="store.project?.orphans" class="orph" title="Gruppenadressen an Objekten, die es bei den aktuellen Parametern nicht gibt" @click="showOrphans">
+        ⚠ {{ store.project.orphans }} verwaist
+      </button>
       <button class="search" @click="palette = true">Suchen &amp; Befehle <kbd>⌘K</kbd></button>
       <NDropdown trigger="click" :options="viewMenu" size="small" @select="onViewMenu">
         <NButton size="small" quaternary>Ansicht ▾</NButton>
@@ -194,6 +221,7 @@ onBeforeUnmount(() => {
 .stats { font-size: 12px; flex: 0 1 auto !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 900px) { .stats { display: none; } }
 .spacer { flex: 1 1 0 !important; }
+.orph { font: inherit; font-size: 12px; border: 1px solid #f0c9a4; background: #fdf0e6; color: #8a4b0f; border-radius: 6px; padding: 3px 8px; cursor: pointer; }
 .search { font: inherit; font-size: 12px; color: var(--kl-muted); background: var(--kl-bg); border: 1px solid var(--kl-border); border-radius: 6px; padding: 4px 8px 4px 10px; cursor: pointer; display: flex; gap: 10px; align-items: center; min-width: 0; width: 220px; flex: 0 1 220px !important; justify-content: space-between; }
 kbd { font-family: var(--kl-mono); font-size: 11px; background: var(--kl-hover); border-radius: 4px; padding: 0 4px; }
 .dock { flex: 1; min-height: 0; position: relative; }
