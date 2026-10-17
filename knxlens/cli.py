@@ -148,6 +148,42 @@ def cmd_edit(args: argparse.Namespace) -> None:
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 
+def cmd_image(args: argparse.Namespace) -> None:
+    """Download-Abbild berechnen und gegen die gelesenen Geräte prüfen (kein Buszugriff)."""
+    from .image import check_against_store
+    from .params import AppParams
+    from .project import Project
+    from .project.products import app_for, project_catalog
+    from .project.reconstruct import object_number
+
+    p = Project.load(args.project)
+    cat = project_catalog(p)
+    store = Store(args.db)
+    masks = dict(store.found_devices())
+    aps: dict[str, AppParams] = {}
+    total_eq = total_diff = tables_ok = tables_all = 0
+    for d in p.devices:
+        if d.pa is None or (args.pa and d.pa not in args.pa) or d.pa not in masks:
+            continue
+        app = app_for(cat, d.app_id)
+        ap = (aps.get(app.key) or aps.setdefault(app.key, AppParams(app))) if app else None
+        c = check_against_store(ap, d, store, masks[d.pa], (lambda l, a=app: object_number(a, l.ref)) if app else None)
+        total_eq += c.param_equal
+        total_diff += len(c.param_diff)
+        flags = []
+        for name, ok in (("Adressen", c.address_table), ("Assoziationen", c.association_table)):
+            if ok is not None:
+                tables_all += 1
+                tables_ok += ok
+                flags.append(f"{name} {'=' if ok else '≠'}")
+        print(f"{d.pa:10} Parameterbytes {c.param_equal:5} gleich, {len(c.param_diff):4} abweichend  {'  '.join(flags)}")
+        for sid, off, dev, calc, owners in c.param_diff[: args.details]:
+            print(f"    {sid.rsplit('_', 1)[-1]}+{off:#06x}  Gerät {dev:08b}  berechnet {calc:08b}  {'; '.join(owners[:2])}")
+        for prob in c.problems[:5]:
+            print(f"    ! {prob}")
+    print(f"\nGesamt: Parameterbytes {total_eq} gleich, {total_diff} abweichend; Tabellen {tables_ok}/{tables_all} gleich")
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -214,6 +250,12 @@ def main() -> None:
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8770)
     s.set_defaults(func=cmd_edit)
+
+    s = sub.add_parser("image", help="Download-Abbild berechnen und gegen gelesene Geräte prüfen")
+    s.add_argument("project", help="Projektdatei *.knxlens")
+    s.add_argument("pa", nargs="*", help="nur diese Geräte")
+    s.add_argument("--details", type=int, default=0, help="so viele abweichende Bytes je Gerät zeigen")
+    s.set_defaults(func=cmd_image)
 
     s = sub.add_parser("serve", help="Weboberfläche (nur gespeicherte Daten, kein Buszugriff)")
     s.add_argument("--reference", help="xknxproject-JSON des Referenzprojekts (optional)")

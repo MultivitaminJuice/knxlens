@@ -19,7 +19,7 @@ from ..catalog import Application, Catalog
 from ..project import Device, Project
 from ..project.edit import EditError, editor_item, set_param
 from ..project.ops import MEDIA, SPACE_CHILDREN, SPACE_TYPES, Editor, OpError
-from ..project.reconstruct import rel_ref
+from ..project.reconstruct import catalog_key as _catalog_key, rel_ref
 from ..project.ops import ga_raw as GroupAddressRaw
 from ..project.products import MAX_PRODUCT_FILE, ProductError, add_products, app_for, project_catalog
 
@@ -64,16 +64,6 @@ class EditorState:
             if pid == d.product_ref:
                 return name
         return app.products[0][0] if app.products else app.name
-
-
-def _catalog_key(app: Application, rel_ref: str) -> str:
-    """Relative ComObjectRef (wie im Projekt) → Schlüssel in Application.variant_by_ref."""
-    full = app.full_id
-    if "_MI-" in rel_ref:
-        inst, rest = rel_ref.split("_MI-1_", 1)
-        md = inst.rsplit("_M-", 1)[0]
-        return f"{full}_{inst}|{full}_{md}_{rest}"
-    return f"{full}_{rel_ref}"
 
 
 def device_detail(state: EditorState, d: Device) -> dict:

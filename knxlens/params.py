@@ -71,6 +71,8 @@ class Param:
     access: str
     loc: Location | None
     suffix: str = ""
+    union: str | None = None  # Id des Union-Elements (teilt sich den Speicher mit anderen)
+    union_default: bool = False  # DefaultUnionParameter: wird geschrieben, wenn kein Mitglied aktiv ist
 
 
 @dataclass
@@ -147,6 +149,11 @@ class AppParams:
         }
         self.dynamic = next((d for d in self.prog if _local(d.tag) == "Dynamic"), None)
         self.co_refs = self._co_refs()
+        # Füllwert relativer Segmente aus der Ladeprozedur (LdCtrlRelSegment Fill), je Load State Machine
+        self.rel_fill: dict[int, int] = {}
+        for el in self.prog.iter():
+            if _local(el.tag) == "LdCtrlRelSegment" and el.get("AppliesTo", "full") in ("full", "full,par"):
+                self.rel_fill.setdefault(int(el.get("LsmIdx", "0")), int(el.get("Fill", "0")))
 
     # --- Aufbau ---------------------------------------------------------------
 
@@ -212,18 +219,19 @@ class AppParams:
                     return Location(None, bit, None, int(c.get("ObjectIndex", "0")), int(c.get("PropertyId", "0")))
             return None
 
-        def add(p, loc: Location | None) -> None:
+        def add(p, loc: Location | None, union: str | None = None) -> None:
             ptype = self.types.get(p.get("ParameterType"), PType("none", 0))
             params[p.get("Id")] = Param(
                 id=p.get("Id"), text=self._t(p.get("Id"), p.attrib, "Text"), ptype=ptype,
                 default=p.get("Value", ""), access=p.get("Access", "ReadWrite"), loc=loc,
                 suffix=self._t(p.get("Id"), p.attrib, "SuffixText"),
+                union=union, union_default=p.get("DefaultUnionParameter") == "true",
             )
 
         for el in _children(self.prog, "Parameter"):
             if el.get("Id") not in params:
                 add(el, location(el))
-        for union in _children(self.prog, "Union"):
+        for n, union in enumerate(_children(self.prog, "Union")):
             base = location(union)
             for p in union:
                 if _local(p.tag) != "Parameter":
@@ -232,7 +240,7 @@ class AppParams:
                 if base is not None:
                     extra = int(p.get("Offset", "0")) * 8 + int(p.get("BitOffset", "0"))
                     loc = Location(base.segment, base.bit + extra, base.base_arg, base.obj, base.pid)
-                add(p, loc)
+                add(p, loc, f"U{n}")
 
         refs = {}
         for r in _children(self.prog, "ParameterRef"):
@@ -322,6 +330,8 @@ class Evaluation:
         self.inferred: list[str] = []  # Bedingungen, deren ETS-only-Wert aus dem Speicher erschlossen wurde
         self.inferred_keys: list[tuple[str, str, str]] = []  # (Parameter-Schlüssel, gewählter test, Standard)
         self.modules: list[tuple[str, list[tuple[str, str]]]] = []  # aktive Modulinstanzen: (Id, [(Arg-RefId, Wert)])
+        self.contexts: dict[str | None, Context] = {None: Context()}  # aktive Modulinstanzen mit Argumenten
+        self.assigns: list[tuple[str, Context, str | None, str | None]] = []  # (Ziel-Ref, Kontext, Quell-Ref, fester Wert)
 
     def address(self, loc: Location, ctx: Context) -> tuple[int, int] | None:
         """(Byteadresse, Bitrest) im Gerät."""
@@ -462,10 +472,14 @@ class Evaluation:
                 args = [(a.get("RefId"), a.get("Value", "")) for a in child if _local(a.tag) in ("NumericArg", "TextArg")]
                 if child.get("Id") not in {m[0] for m in self.modules}:
                     self.modules.append((child.get("Id"), args))
+                    self.contexts[child.get("Id")] = sub
                 dyn = next((d for d in md if _local(d.tag) == "Dynamic"), None)
                 if dyn is not None:
                     self.walk(dyn, sub, path, uncertain)
-            elif tag in ("Assign", "Rename", "ParameterSeparator", "ParameterCalculations", "ParameterCalculation"):
+            elif tag == "Assign":
+                # im aktiven Zweig: Zielparameter bekommt den Wert der Quelle bzw. einen festen Wert
+                self.assigns.append((child.get("TargetParamRefRef"), ctx, child.get("SourceParamRefRef"), child.get("Value")))
+            elif tag in ("Rename", "ParameterSeparator", "ParameterCalculations", "ParameterCalculation"):
                 continue
             else:
                 self.walk(child, ctx, path, uncertain)

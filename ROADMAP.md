@@ -119,8 +119,33 @@ irgendetwas geschrieben wird.
   zusammengeführt; Applikationen, Signaturen und knx_master.xml bleiben in der vorhandenen
   Fassung. Das Laden ist bewusst nicht rückgängig zu machen (ändert nur den Katalog).
 - Offen: Mehrfach-Umnummerieren, Geräte-Parameter mehrerer Geräte gleichzeitig.
-- Offen aus E2.2: `Assign`-Regeln der Produktdaten (versteckte Folgewerte) werden noch nicht
-  nachgeführt – wichtig erst für das Download-Abbild (E3).
+- `Assign`-Regeln werden im Download-Abbild (E3) angewendet; im Parameterdialog noch nicht angezeigt.
+
+## Stand E3 (17.10.2026, in Arbeit)
+
+`knxlens/image.py`, Prüfung mit `knxlens image projekt.knxlens [PA …] [--details N]`
+(vergleicht mit den zuletzt gelesenen Bytes in `data/knxlens.sqlite`, kein Buszugriff).
+
+- **Adress- und Assoziationstabelle: 80/80 Tabellen der 40 Geräte byte-genau gleich.**
+  Adressen aufsteigend (System 7 mit eigener PA vorn), Assoziationen erst je Objekt die
+  sendende GA nach Objektnummer, dann die übrigen.
+- **Parameterspeicher: 33 696 Bytes gleich, 251 abweichend** (Projektwerte gegen Gerät).
+  Mit den aus dem Gerät gelesenen Speicherwerten statt der Projektwerte: 33 823 / 124 – der
+  Unterschied sind Stellen, an denen Projekt und Gerät auseinanderliegen (nicht neu programmiert).
+- Gefundene Regeln (je durch Vergleich bestätigt bzw. widerlegt):
+  - nicht änderbare Refs (Access None/Read) geben ihren Wert fest vor;
+  - mehrere aktive Refs eines Parameters: die änderbare gilt, sonst die erste;
+  - inaktive Parameter und inaktive Unions werden nicht geschrieben (DefaultUnionParameter nicht);
+  - relative Segmente: Füllwert aus `LdCtrlRelSegment Fill`, Bytes mit Parametern beginnen bei 0;
+  - absolute Segmente ohne Standardbild: nur Parameterbytes werden geschrieben.
+- Erklärte Rest-Abweichungen: Flags, die das Gerät nach dem Download selbst ändert
+  (Steinel `INIT_FlagAppSave`, Theben „Download:“, MDT „Teach-in value at loading“, Gira
+  „Downloaderkennung“, Theben/Elsner „$AA“); Projekt ≠ Gerät bei ETS-only-Schaltern (z. B. HCL bei
+  den MDT-Dimmern 1.1.239/249/254, „extra langer Tastendruck“ bei MDT-Tastern), Texte am
+  Glastaster 1.1.132, bekannte Dimmer-Auffälligkeit 1.1.22/1.1.24.
+- Offen in E3: Gerät 1.1.229 (53 Bytes ohne Erklärung, relatives Segment), Gruppenobjekttabelle
+  (System B), Property-Parameter, BCU1-Speicherkarte, `ParameterCalculation`, Ladeablauf
+  (LdCtrl-Folge) als ausführbarer Plan für E4.
 
 ## Offene Punkte
 

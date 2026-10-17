@@ -133,6 +133,21 @@ def rel_ref(app: Application, key: str) -> str:
     return rel
 
 
+def catalog_key(app: Application, rel_ref: str) -> str:
+    """Relative ComObjectRef (wie im Projekt) → Schlüssel in Application.variant_by_ref."""
+    full = app.full_id
+    if "_MI-" in rel_ref:
+        inst, rest = rel_ref.split("_MI-1_", 1)
+        md = inst.rsplit("_M-", 1)[0]
+        return f"{full}_{inst}|{full}_{md}_{rest}"
+    return f"{full}_{rel_ref}"
+
+
+def object_number(app: Application, rel: str) -> int | None:
+    """Objektnummer zu einer relativen ComObjectRef (wie im Projekt)."""
+    return app.ref_number.get(catalog_key(app, rel))
+
+
 def _modules(app: Application, ev: Evaluation | None, needed: set[str]) -> list[ModuleInstance]:
     instances = dict(ev.modules) if ev is not None else {}
     for inst_id in needed - instances.keys():
