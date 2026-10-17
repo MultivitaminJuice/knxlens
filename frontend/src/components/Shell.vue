@@ -9,6 +9,7 @@ import DockPane from './DockPane.vue'
 import HeaderActions from './HeaderActions.vue'
 import ParamDialog from './ParamDialog.vue'
 import CommandPalette from './CommandPalette.vue'
+import ProjectMenu from './ProjectMenu.vue'
 import { loadAll, panes, redo, save, store, undo, VIEW_TITLES, type TreeKind, type ViewKind } from '../store'
 
 const message = useMessage()
@@ -193,6 +194,7 @@ onBeforeUnmount(() => {
         ⚠ {{ store.project.orphans }} verwaist
       </button>
       <button class="search" @click="palette = true">Suchen &amp; Befehle <kbd>⌘K</kbd></button>
+      <ProjectMenu />
       <NDropdown trigger="click" :options="viewMenu" size="small" @select="onViewMenu">
         <NButton size="small" quaternary>Ansicht ▾</NButton>
       </NDropdown>

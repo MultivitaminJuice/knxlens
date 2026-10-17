@@ -54,6 +54,14 @@ class EditorState:
             self._app_params[app.key] = params.AppParams(app)
         return self._app_params[app.key]
 
+    def switch(self, path: Path, project: Project) -> None:
+        """Anderes Projekt öffnen: Katalog, Parameterdaten und Rückgängig-Verlauf neu."""
+        self.path, self.project, self.dirty = path, project, False
+        self.ops = Editor(project)
+        self._catalog = None
+        self._app_params.clear()
+        _remember(path)
+
     def device(self, uid: str) -> Device:
         d = next((d for d in self.project.devices if d.uid == uid), None)
         if d is None:
@@ -140,6 +148,48 @@ class UidsIn(BaseModel):
     uids: list[str] | None = None  # None = alle Geräte
 
 
+RECENT = Path.home() / ".config" / "knxlens" / "recent.json"
+
+
+def _remember(path: Path) -> None:
+    """Zuletzt geöffnete Projekte (für „Öffnen“)."""
+    import json
+    try:
+        items = json.loads(RECENT.read_text()) if RECENT.exists() else []
+        items = [str(path.resolve())] + [p for p in items if p != str(path.resolve())]
+        RECENT.parent.mkdir(parents=True, exist_ok=True)
+        RECENT.write_text(json.dumps(items[:12], indent=1))
+    except (OSError, ValueError):
+        pass  # nur Komfort
+
+
+def _recent() -> list[Path]:
+    import json
+    try:
+        return [Path(p) for p in json.loads(RECENT.read_text())] if RECENT.exists() else []
+    except (OSError, ValueError):
+        return []
+
+
+def _slug(name: str) -> str:
+    import re
+    s = re.sub(r"[^\w\- ]+", "", name, flags=re.UNICODE).strip().replace(" ", "_")
+    return s[:60] or "Projekt"
+
+
+class NameIn(BaseModel):
+    name: str
+
+
+class PathIn(BaseModel):
+    path: str
+    force: bool = False
+
+
+class CommentIn(BaseModel):
+    comment: str = ""
+
+
 class MonitorIn(BaseModel):
     gateway: str
 
@@ -155,6 +205,7 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
     path = Path(project_path)
     state = EditorState(path, Project.load(path))
     state.ops = Editor(state.project)
+    _remember(path)
     if preload:
         # Produktdaten vorab einlesen (einige Sekunden) – sonst wartet die erste Anfrage darauf
         _ = state.catalog
@@ -226,7 +277,7 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
     @app.get("/api/project")
     def project_info():
         p = state.project
-        return {"name": p.name, "file": path.name, "project_id": p.project_id, "dirty": state.dirty,
+        return {"name": p.name, "file": state.path.name, "path": str(state.path), "project_id": p.project_id, "dirty": state.dirty,
                 "undo": state.ops.undo_stack[-1][0] if state.ops.undo_stack else None,
                 "redo": state.ops.redo_stack[-1][0] if state.ops.redo_stack else None,
                 "devices": len(p.devices), "orphans": _orphan_count(),
@@ -439,6 +490,139 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
         _ = state.catalog
         state.dirty = True
         return result
+
+    # --- Projekte: öffnen, neu, speichern unter, Import/Export ---------------------------------
+
+    def _target(name: str) -> Path:
+        target = state.path.parent / f"{_slug(name)}.knxlens"
+        if target.exists():
+            raise HTTPException(409, f"{target.name} gibt es schon in {target.parent}")
+        return target
+
+    def _guard_dirty(force: bool) -> None:
+        if state.dirty and not force:
+            raise HTTPException(409, "Ungespeicherte Änderungen – erst speichern oder verwerfen")
+
+    def _open(target: Path) -> dict:
+        try:
+            project = Project.load(target)
+        except Exception as e:  # noqa: BLE001 - kaputte/fremde Datei
+            raise HTTPException(422, f"{target.name} lässt sich nicht öffnen: {e}") from None
+        state.switch(target, project)
+        _ = state.catalog
+        return project_info()
+
+    @app.get("/api/files")
+    def files():
+        folder = state.path.parent
+        seen, out = set(), []
+        for f in sorted(folder.glob("*.knxlens"), key=lambda x: -x.stat().st_mtime) + _recent():
+            r = f.resolve()
+            if r in seen or not f.exists() or f.suffix != ".knxlens":
+                continue
+            seen.add(r)
+            out.append({"path": str(r), "name": f.stem, "folder": str(f.parent), "mtime": f.stat().st_mtime,
+                        "current": r == state.path.resolve()})
+        return {"folder": str(folder), "files": out}
+
+    @app.post("/api/project/open")
+    def open_project(body: PathIn):
+        target = Path(body.path).expanduser()
+        if target.suffix != ".knxlens" or not target.is_file():
+            raise HTTPException(422, "Nur vorhandene *.knxlens-Dateien")
+        _guard_dirty(body.force)
+        return _open(target)
+
+    @app.post("/api/project/new")
+    def new_project(body: NameIn, force: bool = False):
+        import secrets
+        from ..project import Line
+        _guard_dirty(force)
+        target = _target(body.name)
+        p = Project(name=body.name.strip() or "Neues Projekt", project_id=f"P-{secrets.randbelow(0xFFFF):04X}",
+                    lines=[Line(1, 0), Line(1, 1)])
+        p.save(target)
+        return _open(target)
+
+    @app.post("/api/project/save_as")
+    def save_as(body: NameIn):
+        target = _target(body.name)
+        state.project.name = body.name.strip() or state.project.name
+        state.project.save(target)
+        from ..project.versions import copy_into
+        import sqlite3
+        with sqlite3.connect(target) as db:  # Versionsverlauf mitnehmen
+            copy_into(state.path, db)
+        state.path, state.dirty = target, False
+        _remember(target)
+        return project_info()
+
+    @app.post("/api/project/import")
+    async def import_project(request: Request, name: str = "", force: bool = False):
+        """ETS-Projekt (.knxproj, Rohdaten im Body) als neues knxlens-Projekt anlegen und öffnen."""
+        import tempfile
+        from ..project.knxproj_io import import_knxproj
+        _guard_dirty(force)
+        data = await request.body()
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "import.knxproj"
+            src.write_bytes(data)
+            try:
+                p = import_knxproj(src)
+            except Exception as e:  # noqa: BLE001
+                raise HTTPException(422, f"Kein lesbares ETS-Projekt: {e}") from None
+        target = _target(Path(name).stem or p.name)
+        p.save(target)
+        return _open(target)
+
+    @app.get("/api/project/export")
+    def export_project():
+        import tempfile
+        from ..project.knxproj_io import export_knxproj
+        out = Path(tempfile.mkdtemp()) / f"{_slug(state.project.name)}.knxproj"
+        export_knxproj(state.project, str(out))
+        return FileResponse(out, filename=out.name, media_type="application/octet-stream")
+
+    # --- Versionen ----------------------------------------------------------------------
+
+    @app.get("/api/versions")
+    def version_list():
+        from ..project import versions
+        return versions.listing(state.path)
+
+    @app.post("/api/versions")
+    def version_add(body: CommentIn):
+        """Speichert und legt eine Version an (wie ein Commit)."""
+        from ..project import versions
+        state.project.save(state.path)
+        state.dirty = False
+        vid = versions.add(state.path, state.project, body.comment or "ohne Kommentar")
+        return {"id": vid}
+
+    @app.get("/api/versions/{vid}/diff")
+    def version_diff(vid: int):
+        from ..project import versions
+        try:
+            old = versions.get(state.path, vid, state.project.products)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from None
+        return versions.diff(old, state.project)
+
+    @app.post("/api/versions/{vid}/restore")
+    def version_restore(vid: int):
+        from ..project import versions
+        try:
+            old = versions.get(state.path, vid, state.project.products)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from None
+
+        def do():
+            for f in ("name", "lines", "devices", "ranges", "group_addresses", "spaces"):
+                setattr(state.project, f, getattr(old, f))
+
+        state.ops.run(f"Version {vid} wiederherstellen", do)
+        state.dirty = True
+        return project_info()
 
     @app.post("/api/project/save")
     def save():

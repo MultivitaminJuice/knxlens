@@ -31,6 +31,7 @@ def project_catalog(p: Project) -> Catalog:
     folder = CACHE / h.hexdigest()[:16]
     done = folder / ".complete"
     if not done.exists():
+        folder.mkdir(parents=True, exist_ok=True)  # auch für Projekte ohne Produktdaten
         for name, data in p.products.items():
             target = (folder / name).resolve()
             if not str(target).startswith(str(folder.resolve())):

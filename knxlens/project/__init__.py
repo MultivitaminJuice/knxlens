@@ -161,6 +161,8 @@ class Project:
             db.execute("INSERT INTO space VALUES (?,?,?,?,?,?)", (s.uid, i, s.parent, s.type, s.name, j(s.extra)))
             db.executemany("INSERT INTO space_device VALUES (?,?,?)", [(s.uid, k, u) for k, u in enumerate(s.devices)])
         db.commit()
+        from .versions import copy_into
+        copy_into(path, db)  # Versionen der bisherigen Datei bleiben erhalten
         db.close()
         tmp.replace(path)  # atomar: halb geschriebene Projektdateien gibt es nicht
 

@@ -109,6 +109,17 @@ export interface MonitorRow {
   service: string; raw: string; value: string; known: boolean
 }
 
+export interface ProjectFile { path: string; name: string; folder: string; mtime: number; current: boolean }
+export interface VersionEntry {
+  id: number; ts: number; comment: string
+  stats: { devices: number; group_addresses: number; links: number; lines: number; spaces: number; params: number }
+}
+export interface VersionDiff {
+  devices_added: string[]; devices_removed: string[]; devices_changed: string[]
+  gas_added: string[]; gas_removed: string[]; gas_renamed: string[]
+  lines: { added: string[]; removed: string[] }; spaces_changed: string[]
+}
+
 export interface Orphan { ref: string; number: number; text: string; gas: string[] }
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -143,6 +154,17 @@ export const api = {
   monitorStart: (gateway: string) => send<{ state: string }>('POST', '/api/monitor/start', { gateway }),
   monitorStop: () => send<{ state: string }>('POST', '/api/monitor/stop'),
   monitorClear: () => send<{ ok: boolean }>('POST', '/api/monitor/clear'),
+  files: () => get<{ folder: string; files: ProjectFile[] }>('/api/files'),
+  openProject: (path: string, force = false) => send<ProjectInfo>('POST', '/api/project/open', { path, force }),
+  newProject: (name: string, force = false) => send<ProjectInfo>('POST', `/api/project/new?force=${force}`, { name }),
+  saveAs: (name: string) => send<ProjectInfo>('POST', '/api/project/save_as', { name }),
+  importProject: (file: File, force = false) =>
+    call<ProjectInfo>(`/api/project/import?name=${encodeURIComponent(file.name)}&force=${force}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file }),
+  versions: () => get<VersionEntry[]>('/api/versions'),
+  addVersion: (comment: string) => send<{ id: number }>('POST', '/api/versions', { comment }),
+  versionDiff: (id: number) => get<VersionDiff>(`/api/versions/${id}/diff`),
+  restoreVersion: (id: number) => send<ProjectInfo>('POST', `/api/versions/${id}/restore`),
   orphans: () => get<{ uid: string; pa: string | null; name: string; orphans: Orphan[] }[]>('/api/orphans'),
   unlinkOrphans: (uids: string[] | null) => send<{ unlinked: number }>('POST', '/api/orphans/unlink', { uids }),
   save: () => send<{ saved: string }>('POST', '/api/project/save'),

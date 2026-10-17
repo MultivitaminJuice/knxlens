@@ -118,6 +118,13 @@ irgendetwas geschrieben wird.
   unverändert übernommen, Hardware.xml/Catalog.xml desselben Herstellers nach Id
   zusammengeführt; Applikationen, Signaturen und knx_master.xml bleiben in der vorhandenen
   Fassung. Das Laden ist bewusst nicht rückgängig zu machen (ändert nur den Katalog).
+- **Verwaiste Zuordnungen:** Parameteränderungen, durch die Objekte mit GAs wegfallen, fragen
+  zurück (lösen / als inaktiv behalten / abbrechen); Übersicht „verwaist“ in der Kopfleiste;
+  Variantenwechsel desselben Objekts hängt GAs automatisch um; Download nur aktive Objekte.
+- **Gruppenmonitor** als Fenster (nur Empfang, ReadOnlyGuard), Werte nach DPT, live am X1 getestet.
+- **Projekte:** öffnen (Ordner + zuletzt geöffnete), neu, speichern unter, ETS-Import/-Export;
+  **Versionen** als Momentaufnahmen mit Kommentar in der Projektdatei (anlegen = speichern +
+  Version, Unterschiede zu jetzt, zurückholen per ⌘Z rückgängig), bleiben beim Speichern erhalten.
 - Offen: Mehrfach-Umnummerieren, Geräte-Parameter mehrerer Geräte gleichzeitig.
 - `Assign`-Regeln werden im Download-Abbild (E3) angewendet; im Parameterdialog noch nicht angezeigt.
 

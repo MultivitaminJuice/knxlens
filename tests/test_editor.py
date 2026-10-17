@@ -118,3 +118,33 @@ def test_monitor_rows_decoded(client):
     assert b["dst"] == "1/2/0" and b["value"].endswith("°C")  # DPT 9.001 aus dem Projekt
     assert client.get(f"/api/monitor?since={a['id']}").json()["rows"] == [b]
     assert client.post("/api/monitor/start", json={"gateway": " "}).status_code == 422
+
+
+def test_project_files_new_save_as_versions(client, tmp_path, monkeypatch):
+    from knxlens import editor as ed
+    monkeypatch.setattr(ed, "RECENT", tmp_path / "recent.json")
+    assert client.get("/api/files").json()["files"][0]["current"]
+    # Version anlegen, ändern, Unterschied, zurückholen
+    v = client.post("/api/versions", json={"comment": "Start"}).json()["id"]
+    client.post("/api/op", json={"op": "device_update", "args": {"uid": "P-0123-0_DI-1", "name": "Taster Bad"}})
+    d = client.get(f"/api/versions/{v}/diff").json()
+    assert any("Name" in c for c in d["devices_changed"])
+    client.post(f"/api/versions/{v}/restore")
+    assert client.get("/api/device/P-0123-0_DI-1").json()["name"] == "Taster Flur"
+    # ungespeichert → Öffnen/Neu fragen zurück
+    assert client.post("/api/project/new", json={"name": "Garage"}).status_code == 409
+    client.post("/api/project/save")
+    r = client.post("/api/project/save_as", json={"name": "Kopie Haus"})
+    assert r.status_code == 200 and r.json()["file"] == "Kopie_Haus.knxlens"
+    assert [x["comment"] for x in client.get("/api/versions").json()] == ["Start"]  # Verlauf kam mit
+    r = client.post("/api/project/new", json={"name": "Garage"})
+    assert r.status_code == 200 and r.json()["name"] == "Garage" and r.json()["devices"] == 0
+    assert client.get("/api/tree/topology").json()[0]["children"][1]["data"]["line"] == 1
+    assert client.post("/api/project/new", json={"name": "Garage"}).status_code == 409  # gibt es schon
+    back = next(f for f in client.get("/api/files").json()["files"] if f["name"] == "p")
+    assert client.post("/api/project/open", json={"path": back["path"]}).json()["devices"] == 2
+    assert client.post("/api/project/open", json={"path": "/etc/passwd"}).status_code == 422
+    exp = client.get("/api/project/export")
+    assert exp.status_code == 200 and exp.content[:2] == b"PK"
+    r = client.post("/api/project/import?name=Wieder.knxproj", content=exp.content)
+    assert r.status_code == 200 and r.json()["file"] == "Wieder.knxlens" and r.json()["devices"] == 2
