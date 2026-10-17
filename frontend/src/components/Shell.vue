@@ -5,6 +5,7 @@ import { NButton, NDropdown, useMessage, useOsTheme, type DropdownOption } from 
 import { DockviewVue, themeGithubDark, themeGithubLight, type DockviewApi, type DockviewReadyEvent } from 'dockview-vue'
 import 'dockview-vue/dist/styles/dockview.css'
 import DockPane from './DockPane.vue'
+import HeaderActions from './HeaderActions.vue'
 import ParamDialog from './ParamDialog.vue'
 import CommandPalette from './CommandPalette.vue'
 import { loadAll, panes, redo, save, store, undo, VIEW_TITLES, type TreeKind } from '../store'
@@ -16,6 +17,7 @@ const os = useOsTheme()
 const dockTheme = computed(() => (os.value === 'dark' ? themeGithubDark : themeGithubLight))
 // dockview erwartet einen allgemeinen Komponententyp; DockPane hat typisierte Props (gleich zur Laufzeit)
 const components = { pane: markRaw(DockPane) as never }
+const headerActions = markRaw(HeaderActions) as never
 
 const api = shallowRef<DockviewApi | null>(null)
 const palette = ref(false)
@@ -175,7 +177,8 @@ onBeforeUnmount(() => {
     <p v-if="error" class="error">{{ error }}</p>
     <!-- Container gibt die Größe vor: dockview hat keine einzelne Wurzel, Scoped-Styles greifen dort nicht -->
     <div class="dock">
-      <DockviewVue style="height: 100%; width: 100%" :theme="dockTheme" :components="components" @ready="onReady" />
+      <DockviewVue style="height: 100%; width: 100%" :theme="dockTheme" :components="components"
+                   :right-header-actions-component="headerActions" @ready="onReady" />
     </div>
     <ParamDialog />
     <CommandPalette v-model:show="palette" @reveal="reveal" />
@@ -198,4 +201,11 @@ kbd { font-family: var(--kl-mono); font-size: 11px; background: var(--kl-hover);
 /* dockview an die eigenen Farben angleichen */
 .dock :deep(.dv-tab) { font-size: 12.5px; }
 .dock :deep(.dv-groupview) { background: var(--kl-bg); }
+/* Ablagezonen beim Ziehen deutlich zeigen (im Theme fast unsichtbar) */
+.dock :deep(.dv-shell) {
+  --dv-drag-over-background-color: rgb(37 99 235 / 22%);
+  --dv-drag-over-border-color: #2563eb;
+  --dv-drag-over-border: 2px solid #2563eb;
+}
+.dock :deep(.dv-drop-target-selection) { border: 2px solid #2563eb; border-radius: 4px; box-sizing: border-box; }
 </style>
