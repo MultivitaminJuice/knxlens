@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,13 +18,13 @@ from .. import params
 from ..catalog import Application, Catalog
 from ..project import Device, Project
 from ..project.edit import EditError, editor_item, set_param
-from ..project.ops import Editor, OpError
+from ..project.ops import MEDIA, SPACE_CHILDREN, SPACE_TYPES, Editor, OpError
 from ..project.reconstruct import rel_ref
 from ..project.ops import ga_raw as GroupAddressRaw
-from ..project.products import app_for, project_catalog
+from ..project.products import MAX_PRODUCT_FILE, ProductError, add_products, app_for, project_catalog
 
 STATIC = Path(__file__).parent.parent / "web" / "static" / "editor"
-MEDIUM = {"MT-0": "TP", "MT-5": "IP", "MT-1": "PL", "MT-2": "RF"}
+MEDIUM = MEDIA
 
 
 @dataclass
@@ -131,6 +131,8 @@ OPS = {name: getattr(Editor, name) for name in (
     "ga_add", "ga_update", "ga_readdress", "ga_move", "ga_copy", "ga_delete",
     "link", "unlink", "set_sending",
     "device_update", "device_set_pa", "device_move", "device_copy", "device_delete", "device_insert",
+    "area_add", "area_rename", "area_delete", "line_add", "line_update", "line_delete",
+    "space_add", "space_update", "space_delete", "space_move", "space_assign", "space_unassign",
 )}
 
 
@@ -155,20 +157,24 @@ def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
                 "undo": state.ops.undo_stack[-1][0] if state.ops.undo_stack else None,
                 "redo": state.ops.redo_stack[-1][0] if state.ops.redo_stack else None,
                 "devices": len(p.devices),
-                "group_addresses": len(p.group_addresses), "links": sum(len(l.gas) for d in p.devices for l in d.links)}
+                "group_addresses": len(p.group_addresses), "links": sum(len(l.gas) for d in p.devices for l in d.links),
+                "space_types": SPACE_TYPES, "space_root": list(SPACE_CHILDREN[None]), "media": MEDIA}
 
     @app.get("/api/tree/topology")
     def topology():
         p = state.project
         areas: dict[int, dict] = {}
         for ln in sorted(p.lines, key=lambda l: (l.area, l.line)):
-            area = areas.setdefault(ln.area, {"key": f"a{ln.area}", "label": f"{ln.area} Bereich",
-                                              "icon": "pi pi-sitemap", "data": {"type": "area"}, "children": []})
+            aname = ((ln.extra or {}).get("area") or {}).get("Name", "")
+            area = areas.setdefault(ln.area, {"key": f"a{ln.area}", "label": f"{ln.area} {aname or 'Bereich'}",
+                                              "icon": "pi pi-sitemap", "children": [],
+                                              "data": {"type": "area", "area": ln.area, "name": aname}})
             devices = [d for d in p.devices if (d.area, d.line) == (ln.area, ln.line)]
             area["children"].append({
                 "key": f"l{ln.area}.{ln.line}", "label": f"{ln.area}.{ln.line} {ln.name or 'Linie'}",
                 "icon": "pi pi-share-alt", "data": {"type": "line", "medium": MEDIUM.get(ln.medium, ln.medium),
-                                                   "area": ln.area, "line": ln.line},
+                                                   "medium_id": ln.medium, "area": ln.area, "line": ln.line,
+                                                   "name": ln.name},
                 "children": [{
                     "key": d.uid, "label": f"{d.pa or '–'} {d.name or state.product_name(d)}",
                     "icon": "pi pi-box", "leaf": False, "data": {"type": "device", "uid": d.uid, "pa": d.pa},
@@ -183,7 +189,11 @@ def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
         nodes: dict[str | None, list] = {}
         for s in p.spaces:
             node = {"key": s.uid, "label": s.name, "icon": "pi pi-home" if s.type in ("Building", "BuildingPart")
-                    else "pi pi-th-large", "data": {"type": "space", "space_type": s.type}, "children": []}
+                    else "pi pi-th-large", "children": [],
+                    "data": {"type": "space", "uid": s.uid, "space_type": s.type, "name": s.name,
+                             "type_label": SPACE_TYPES.get(s.type, s.type),
+                             "child_types": list(SPACE_CHILDREN.get(s.type, ())),
+                             "holds_devices": s.type not in ("Building", "BuildingPart")}}
             nodes.setdefault(s.parent, []).append(node)
             node["_devices"] = [by_uid[u] for u in s.devices if u in by_uid]
 
@@ -193,7 +203,8 @@ def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
                 devs = n.pop("_devices")
                 n["children"] = build(n["key"]) + [{
                     "key": f"{n['key']}/{d.uid}", "label": f"{d.pa or '–'} {d.name or state.product_name(d)}",
-                    "icon": "pi pi-box", "leaf": True, "data": {"type": "device", "uid": d.uid}} for d in devs]
+                    "icon": "pi pi-box", "leaf": True, "data": {"type": "device", "uid": d.uid, "space": n["key"]}}
+                    for d in devs]
                 out.append(n)
             return out
 
@@ -293,6 +304,23 @@ def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
                 out.append({"product_ref": pid, "h2p_ref": h2p, "app_id": app_.full_id, "name": name,
                             "order": order, "manufacturer": app_.key[:6], "application": app_.name})
         return sorted(out, key=lambda x: (x["manufacturer"], x["name"]))
+
+    @app.post("/api/products")
+    async def products_add(request: Request, name: str = ""):
+        """Rohdaten einer .knxprod im Body (kein Multipart nötig)."""
+        size = int(request.headers.get("content-length") or 0)
+        if size > MAX_PRODUCT_FILE:
+            raise HTTPException(413, "Produktdatei ist zu groß")
+        data = await request.body()
+        try:
+            result = add_products(state.project, data, name)
+        except ProductError as e:
+            raise HTTPException(422, str(e)) from None
+        state._catalog = None  # beim nächsten Zugriff mit den neuen Produkten aufbauen
+        state._app_params.clear()
+        _ = state.catalog
+        state.dirty = True
+        return result
 
     @app.post("/api/project/save")
     def save():

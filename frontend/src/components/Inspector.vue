@@ -13,6 +13,7 @@ watch([() => store.ga, () => store.device, first], () => {
     gaName: store.ga?.name ?? '', gaAddr: store.ga?.address ?? '', gaDesc: store.ga?.description ?? '',
     devName: store.device?.name ?? '', devPa: store.device?.pa ?? '', devDesc: store.device?.description ?? '',
     rangeName: first.value?.kind === 'range' ? first.value.name ?? first.value.label : '',
+    topoName: ['area', 'line', 'space'].includes(first.value?.kind ?? '') ? first.value!.name ?? '' : '',
   }
 }, { immediate: true })
 
@@ -27,7 +28,19 @@ function commit(field: string) {
   if (field === 'devDesc' && d && v !== d.description) run('device_update', { uid: d.uid, description: v }, 'Beschreibung gespeichert')
   if (field === 'devPa' && d && v && v !== d.pa) run('device_set_pa', { uid: d.uid, pa: v }, `Physikalische Adresse ${v}`)
   if (field === 'rangeName' && first.value?.kind === 'range' && v) run('range_rename', { uid: first.value.rangeUid, name: v }, 'Umbenannt')
+  const i = first.value
+  if (field === 'topoName' && i && v !== (i.name ?? '')) {
+    if (i.kind === 'area') run('area_rename', { area: i.area, name: v }, 'Umbenannt')
+    if (i.kind === 'line') run('line_update', { area: i.area, line: i.line, name: v }, 'Umbenannt')
+    if (i.kind === 'space' && v) run('space_update', { uid: i.spaceUid, name: v }, 'Umbenannt')
+  }
 }
+const mediaOptions = computed(() => Object.entries(store.project?.media ?? {}).map(([value, label]) => ({ value, label })))
+function setMedium(medium: string) {
+  const i = first.value
+  if (i?.kind === 'line' && medium !== i.medium) run('line_update', { area: i.area, line: i.line, medium }, 'Medium geändert')
+}
+const spaceDevices = computed(() => (first.value?.children ?? []).filter((c) => c.kind === 'device').length)
 
 const DPTS = [
   ['DPST-1-1', '1.001 Schalten'], ['DPST-1-2', '1.002 Boolesch'], ['DPST-1-3', '1.003 Freigeben'],
@@ -123,8 +136,25 @@ const objectLinks = computed(() => {
       <p v-else class="muted small">{{ store.device.objects.length }} aktive Objekte · Gerät im Baum aufklappen, um Objekte zu verknüpfen.</p>
     </template>
 
+    <template v-else-if="first?.kind === 'area'">
+      <h3><span class="mono">{{ first.mono }}</span> Bereich</h3>
+      <label>Name<NInput v-model:value="form.topoName" size="small" placeholder="Bereich" @blur="commit('topoName')" @keyup.enter="commit('topoName')" /></label>
+      <p class="muted">{{ first.children?.length ?? 0 }} Linie(n) · Rechtsklick → Neue Linie</p>
+    </template>
+
+    <template v-else-if="first?.kind === 'space'">
+      <h3>{{ first.sub }}</h3>
+      <label>Name<NInput v-model:value="form.topoName" size="small" @blur="commit('topoName')" @keyup.enter="commit('topoName')" /></label>
+      <p class="muted">{{ spaceDevices }} Gerät(e) zugeordnet.
+        <template v-if="first.holdsDevices">Geräte aus der Topologie hierher ziehen, um sie zuzuordnen.</template>
+        <template v-else>Geräte gehören in Räume, Etagen oder Verteiler darunter.</template>
+      </p>
+    </template>
+
     <template v-else-if="first?.kind === 'line'">
-      <h3><span class="mono">{{ first.mono }}</span> Linie</h3>
+      <h3><span class="mono">{{ first.mono }}</span> {{ first.line === 0 ? 'Bereichslinie' : 'Linie' }}</h3>
+      <label>Name<NInput v-model:value="form.topoName" size="small" :placeholder="first.line === 0 ? 'Bereichslinie' : 'Linie'" @blur="commit('topoName')" @keyup.enter="commit('topoName')" /></label>
+      <label>Medium<NSelect :value="first.medium" :options="mediaOptions" size="small" @update:value="setMedium" /></label>
       <p class="muted">Produkt aus dem Katalog hierher ziehen = Gerät einfügen. Geräte mit ⌘C kopieren, Linie wählen, ⌘V.</p>
     </template>
 

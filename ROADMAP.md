@@ -109,8 +109,16 @@ irgendetwas geschrieben wird.
   schließen, als Reiter stapeln, an Ränder ziehen zum Teilen; Menü „Ansicht“ mit Fenstern und
   Vorlagen (eins, zwei neben-/untereinander, zwei untereinander + Eigenschaften rechts …);
   Layout wird im Browser gemerkt.
-- Offen: Gebäude bearbeiten, Linien/Bereiche anlegen, neue `.knxprod` ins Projekt laden,
-  Mehrfach-Umnummerieren, Geräte-Parameter mehrerer Geräte gleichzeitig.
+- **Topologie:** Bereiche (mit Bereichslinie x.0) und Linien anlegen, benennen, Medium ändern,
+  löschen (mit Geräten nur nach Rückfrage).
+- **Gebäude:** Gebäude/Gebäudeteile/Etagen/Räume/Flure/Treppenhäuser/Verteiler anlegen,
+  umbenennen, löschen, per Ziehen umhängen (Regeln wie in der ETS); Geräte aus der Topologie auf
+  einen Raum ziehen = zuordnen (ein Gerät hat genau einen Ort).
+- **Produktdateien:** `.knxprod` im Katalog laden („+ Produktdatei“). Neue Dateien werden
+  unverändert übernommen, Hardware.xml/Catalog.xml desselben Herstellers nach Id
+  zusammengeführt; Applikationen, Signaturen und knx_master.xml bleiben in der vorhandenen
+  Fassung. Das Laden ist bewusst nicht rückgängig zu machen (ändert nur den Katalog).
+- Offen: Mehrfach-Umnummerieren, Geräte-Parameter mehrerer Geräte gleichzeitig.
 - Offen aus E2.2: `Assign`-Regeln der Produktdaten (versteckte Folgewerte) werden noch nicht
   nachgeführt – wichtig erst für das Download-Abbild (E3).
 

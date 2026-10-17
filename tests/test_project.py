@@ -3,6 +3,7 @@
 import dataclasses
 import zipfile
 
+import pytest
 from defusedxml import ElementTree as ET
 
 from knxlens.catalog import Application, Catalog, ObjectVariant
@@ -141,3 +142,36 @@ def test_reconstruction_to_knxproj(tmp_path):
     assert q.group_addresses["1/0/1"].name == "Flur" and q.group_addresses["3/1/7"].dpt == "DPST-9-1"
     assert next(r for r in q.ranges if r.start == 2048).name == "Licht"
     assert [s.name for s in q.spaces if s.type == "Room"] == ["Flur"]
+
+
+def test_add_products_merges_hardware(tmp_path, monkeypatch):
+    from knxlens.project.products import ProductError, add_products, project_catalog
+    from knxlens.project import products as prod
+    monkeypatch.setattr(prod, "CACHE", tmp_path / "cache")
+    p = import_knxproj(make_knxproj(tmp_path / "in.knxproj"))
+    app2 = "M-0008_A-3000-10-BEEF"
+    hw2 = (HARDWARE.replace("H-1", "H-2").replace("TS2plus", "Dimmer").replace(APP, app2)
+           .replace("Push button sensor 2 plus", "Dimmer").replace("Tastsensor 2 plus", "Dimmaktor").replace("1052 00", "1032 00"))
+    data = tmp_path / "neu.knxprod"
+    with zipfile.ZipFile(data, "w") as z:
+        z.writestr("M-0008/Hardware.xml", hw2)
+        z.writestr(f"M-0008/{app2}.xml", APPLICATION.replace(APP, app2).replace("8242", "12288"))
+        z.writestr("M-0008.signature", "ANDERE")
+        z.writestr("Catalog/irgendwas.txt", "wird ignoriert")
+    sig = p.products["M-0008.signature"]
+    r = add_products(p, data.read_bytes(), "neu.knxprod")
+    assert [(x["name"], x["new"]) for x in r["products"]] == [("Dimmaktor", True)]
+    assert p.products["M-0008.signature"] == sig and "Catalog/irgendwas.txt" not in p.products
+    cat = project_catalog(p)
+    names = sorted(n for a in cat.apps.values() for n, _ in a.products)
+    assert names == ["Dimmaktor", "Tastsensor 2 plus"]  # beide Hardware-Einträge in einer Hardware.xml
+    before = dict(p.products)
+    add_products(p, data.read_bytes())  # zweimal: nichts ändert sich
+    assert p.products == before
+    with pytest.raises(ProductError, match="kein ZIP"):
+        add_products(p, b"nope")
+    bad = tmp_path / "bad.knxprod"
+    with zipfile.ZipFile(bad, "w") as z:
+        z.writestr("M-0008/Hardware.xml", HARDWARE)
+    with pytest.raises(ProductError, match="Keine Applikation"):
+        add_products(p, bad.read_bytes())

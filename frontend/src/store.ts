@@ -27,6 +27,12 @@ export interface Item {
   line?: number
   product?: CatalogItem
   name?: string
+  // Gebäude
+  spaceUid?: string // Gebäudeteil – bzw. bei Geräten im Gebäudebaum: der Ort, an dem es steht
+  spaceType?: string
+  childTypes?: string[]
+  holdsDevices?: boolean
+  medium?: string
 }
 
 export type Notify = (type: 'success' | 'error' | 'info' | 'warning', text: string) => void
@@ -69,11 +75,16 @@ function fromGa(nodes: TreeNode[]): Item[] {
 function fromTopo(nodes: TreeNode[]): Item[] {
   return nodes.map((n) => {
     const t = n.data.type
-    if (t === 'area') return { key: n.key, kind: 'area', label: n.label.replace(/^\d+ /, ''), mono: n.label.split(' ')[0], children: fromTopo(n.children ?? []) }
+    if (t === 'area')
+      return {
+        key: n.key, kind: 'area', label: n.data.name || 'Bereich', mono: String(n.data.area), area: n.data.area,
+        name: n.data.name ?? '', children: fromTopo(n.children ?? []),
+      }
     if (t === 'line')
       return {
-        key: n.key, kind: 'line', label: `Linie ${n.data.medium ?? ''}`.trim(), mono: `${n.data.area}.${n.data.line}`,
-        area: n.data.area, line: n.data.line, children: fromTopo(n.children ?? []),
+        key: n.key, kind: 'line', label: n.data.name || (n.data.line === 0 ? 'Bereichslinie' : 'Linie'), sub: n.data.medium,
+        mono: `${n.data.area}.${n.data.line}`, area: n.data.area, line: n.data.line, name: n.data.name ?? '',
+        medium: n.data.medium_id, children: fromTopo(n.children ?? []),
       }
     const [pa, ...rest] = n.label.split(' ')
     return { key: n.key, kind: 'device', label: rest.join(' '), mono: pa, uid: n.data.uid, lazy: true }
@@ -84,9 +95,13 @@ function fromBuildings(nodes: TreeNode[]): Item[] {
   return nodes.map((n) => {
     if (n.data.type === 'device') {
       const [pa, ...rest] = n.label.split(' ')
-      return { key: n.key, kind: 'device', label: rest.join(' '), mono: pa, uid: n.data.uid, lazy: true }
+      return { key: n.key, kind: 'device', label: rest.join(' '), mono: pa, uid: n.data.uid, lazy: true, spaceUid: n.data.space }
     }
-    return { key: n.key, kind: 'space', label: n.label, sub: n.data.space_type, children: fromBuildings(n.children ?? []) }
+    return {
+      key: n.key, kind: 'space', label: n.label, sub: n.data.type_label, name: n.data.name, spaceUid: n.data.uid,
+      spaceType: n.data.space_type, childTypes: n.data.child_types, holdsDevices: n.data.holds_devices,
+      children: fromBuildings(n.children ?? []),
+    }
   })
 }
 
@@ -238,6 +253,16 @@ export function dropAction(target: Item, items: Item[], copy: boolean): { label:
     return copy
       ? { label: `${uids.length} Gerät(e) nach ${target.mono} kopieren`, apply: () => run('device_copy', args, 'Kopiert') }
       : { label: `${uids.length} Gerät(e) nach ${target.mono} verschieben`, apply: () => run('device_move', args, 'Verschoben') }
+  }
+  // Geräte → Raum/Etage/Verteiler: zuordnen (ein Gerät steht an genau einem Ort)
+  if (only('device') && target.kind === 'space' && target.holdsDevices) {
+    const uids = [...new Set(items.map((i) => i.uid!))]
+    return { label: `${uids.length} Gerät(e) „${target.label}“ zuordnen`, apply: () => run('space_assign', { device_uids: uids, space_uid: target.spaceUid }, 'Zugeordnet') }
+  }
+  // Gebäudeteile → Gebäudeteil: verschieben
+  if (only('space') && target.kind === 'space' && items.every((i) => target.childTypes?.includes(i.spaceType!) && i.spaceUid !== target.spaceUid)) {
+    const uids = items.map((i) => i.spaceUid!)
+    return { label: `${uids.length > 1 ? uids.length + ' Teile' : `„${items[0].label}“`} nach „${target.label}“ verschieben`, apply: () => run('space_move', { uids, parent_uid: target.spaceUid }, 'Verschoben') }
   }
   // Produkt → Linie: einfügen
   if (only('product') && target.kind === 'line') {

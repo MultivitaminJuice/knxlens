@@ -99,3 +99,57 @@ def test_failed_op_changes_nothing(ed):
         ed.ga_move(["1/1/1"], "R1")  # Hauptgruppe ist kein gültiges Ziel
     assert len(ed.undo_stack) == before
     assert ed.project.devices[0].links[0].gas == ["1/1/1", "1/1/2"]
+
+
+def test_areas_and_lines(ed):
+    assert ed.line_add(1) == 3 and ed.line_add(1, 7, "Garage", "MT-5") == 7
+    with pytest.raises(OpError, match="existiert bereits"):
+        ed.line_add(1, 7)
+    a = ed.area_add(name="Nebengebäude")
+    assert a == 2 and [(l.area, l.line) for l in ed.project.lines if l.area == 2] == [(2, 0)]
+    ed.line_add(2)
+    lines = {(l.area, l.line): l for l in ed.project.lines}
+    assert lines[2, 1].extra["area"] == lines[2, 0].extra["area"]  # gleiche Bereichs-Attribute
+    ids = [l.extra["line"]["Id"] for l in ed.project.lines if l.extra]
+    assert len(ids) == len(set(ids))
+    ed.area_rename(2, "Garage")
+    assert {l.extra["area"]["Name"] for l in ed.project.lines if l.area == 2} == {"Garage"}
+    ed.line_update(1, 7, name="Carport", medium="MT-0")
+    assert lines[1, 7].name == "Carport" and lines[1, 7].medium == "MT-0"
+    with pytest.raises(OpError, match="Bereichslinie"):
+        ed.line_delete(2, 0)
+    with pytest.raises(OpError, match="1 Gerät"):
+        ed.line_delete(1, 1)
+    assert ed.line_delete(1, 1, force=True) == 1 and not ed.project.devices
+    assert ed.area_delete(2) == 0 and all(l.area != 2 for l in ed.project.lines)
+    ed.undo(); ed.undo()
+    assert ed.project.devices and any(l.area == 2 for l in ed.project.lines)
+
+
+def test_buildings(ed):
+    b = ed.space_add(None, "Building", "Haus")
+    with pytest.raises(OpError, match="nicht erlaubt"):
+        ed.space_add(None, "Room")
+    f = ed.space_add(b, "Floor", "EG")
+    r = ed.space_add(f, "Room", "Küche")
+    v = ed.space_add(b, "DistributionBoard")
+    assert ed._space(v).name == "Verteiler"
+    with pytest.raises(OpError, match="in sich selbst"):
+        ed.space_move([f], r)
+    with pytest.raises(OpError, match="nicht erlaubt"):
+        ed.space_move([f], v)
+    ed.space_move([v], f)
+    assert [s.uid for s in ed.project.spaces] == [b, f, r, v]  # Eltern vor Kindern
+    with pytest.raises(OpError, match="nicht in „Haus“"):
+        ed.space_assign(["P-0001-0_DI-1"], b)
+    ed.space_assign(["P-0001-0_DI-1"], r)
+    ed.space_assign(["P-0001-0_DI-1"], v)  # ein Gerät hat genau einen Ort
+    assert ed._space(r).devices == [] and ed._space(v).devices == ["P-0001-0_DI-1"]
+    ed.space_update(r, name="Wohnküche")
+    with pytest.raises(OpError, match="passt nicht"):
+        ed.space_update(f, type="Room")  # der Raum darunter passt nicht unter einen Raum
+    assert ed.space_delete([f]) == 3 and [s.uid for s in ed.project.spaces] == [b]
+    assert ed.project.devices  # Geräte bleiben
+    ed.undo()
+    ed.space_unassign(["P-0001-0_DI-1"])
+    assert not any(s.devices for s in ed.project.spaces)

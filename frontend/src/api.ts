@@ -18,6 +18,11 @@ export interface TreeNode {
     line?: number
     level?: 'main' | 'middle'
     space_type?: string
+    type_label?: string
+    child_types?: string[]
+    holds_devices?: boolean
+    space?: string
+    medium_id?: string
   }
   children?: TreeNode[]
 }
@@ -32,6 +37,9 @@ export interface ProjectInfo {
   devices: number
   group_addresses: number
   links: number
+  space_types: Record<string, string>
+  space_root: string[]
+  media: Record<string, string>
 }
 
 export interface DeviceObject {
@@ -117,6 +125,11 @@ export const api = {
   undo: () => send<{ undone: string }>('POST', '/api/undo'),
   redo: () => send<{ redone: string }>('POST', '/api/redo'),
   catalog: () => get<CatalogItem[]>('/api/catalog'),
+  addProducts: (file: File) =>
+    call<{ products: { product_ref: string; name: string; order: string; new: boolean }[]; applications: number }>(
+      `/api/products?name=${encodeURIComponent(file.name)}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file },
+    ),
 }
 
 export interface CatalogItem {

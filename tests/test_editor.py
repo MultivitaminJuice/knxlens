@@ -52,3 +52,31 @@ def test_edit_and_save(client, tmp_path):
     assert r.status_code == 422 and "nicht sichtbar" in r.json()["detail"]
     assert client.get("/api/project").json()["dirty"] is False
     assert client.post("/api/project/save").json() == {"saved": "p.knxlens"}
+
+
+def test_topology_buildings_and_products(client, tmp_path):
+    from test_catalog import make_knxprod
+    r = client.post("/api/op", json={"op": "area_add", "args": {"name": "Garage"}})
+    assert r.status_code == 200 and r.json()["result"] == 2
+    client.post("/api/op", json={"op": "line_add", "args": {"area": 2}})
+    topo = client.get("/api/tree/topology").json()
+    assert [a["label"] for a in topo] == ["1 Bereich", "2 Garage"]
+    assert [l["data"]["line"] for l in topo[1]["children"]] == [0, 1]
+    info = client.get("/api/project").json()
+    assert info["space_root"] == ["Building"] and info["space_types"]["Room"] == "Raum"
+    rooms = client.get("/api/tree/buildings").json()
+    haus = rooms[0]["data"]
+    assert haus["uid"] and "Floor" in haus["child_types"]
+    uid = client.post("/api/op", json={"op": "space_add", "args": {"parent_uid": haus["uid"], "type": "Room", "name": "Bad"}}).json()["result"]
+    assert client.post("/api/op", json={"op": "space_assign", "args": {"device_uids": ["P-0123-0_DI-1"], "space_uid": uid}}).status_code == 200
+    rooms = client.get("/api/tree/buildings").json()
+    bad = next(c for c in rooms[0]["children"] if c["label"] == "Bad")
+    assert bad["children"][0]["data"]["uid"] == "P-0123-0_DI-1"
+    r = client.post("/api/op", json={"op": "space_add", "args": {"parent_uid": None, "type": "Room"}})
+    assert r.status_code == 422 and "nicht erlaubt" in r.json()["detail"]
+    # Produktdatei: kein neues Produkt (dieselbe Applikation), aber gültig
+    data = make_knxprod(tmp_path / "x.knxprod").read_bytes()
+    r = client.post("/api/products?name=x.knxprod", content=data)
+    assert r.status_code == 200 and r.json()["products"][0]["name"] == "Tastsensor 2 plus"
+    assert client.post("/api/products", content=b"kaputt").status_code == 422
+    assert client.get("/api/project").json()["dirty"]

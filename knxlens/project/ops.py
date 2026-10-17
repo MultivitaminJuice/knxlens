@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from xknx.telegram import GroupAddress as _GA
 
-from . import ComLink, Device, GroupAddress, GroupRange, Line, Project
+from . import ComLink, Device, GroupAddress, GroupRange, Line, Project, Space
 
 UNDO_LIMIT = 100
 
@@ -412,3 +412,236 @@ class Editor:
             self.project.devices.append(d)
             return d.uid
         return self.run("Gerät einfügen", do)
+
+    # --- Topologie: Bereiche und Linien -------------------------------------------------
+
+    def _area_lines(self, area: int) -> list[Line]:
+        lines = [l for l in self.project.lines if l.area == area]
+        if not lines:
+            raise OpError(f"Bereich {area} existiert nicht")
+        return lines
+
+    def _topo_id(self, kind: str) -> str:
+        """Neue, im Projekt eindeutige Id für Area/Line/Segment (A, L, S)."""
+        pid = self.project.project_id
+        key = {"A": "area", "L": "line", "S": "segment"}[kind]
+        pattern = re.compile(rf"^{re.escape(pid)}-0_{kind}-(\d+)$")
+        used = [int(m[1]) for l in self.project.lines
+                if (m := pattern.match(((l.extra or {}).get(key) or {}).get("Id", "")))]
+        # auch die Standard-Ids des Exports (…_A-<Bereich+1>) freihalten
+        if kind == "A":
+            used += [l.area + 1 for l in self.project.lines]
+        return f"{pid}-0_{kind}-{max(used, default=0) + 1}"
+
+    def _new_line(self, area: int, line: int, name: str, medium: str, area_attrs: dict) -> Line:
+        if medium not in MEDIA:
+            raise OpError(f"Unbekanntes Medium: {medium}")
+        ln = Line(area, line, name, medium, {"area": area_attrs, "line": {"Id": self._topo_id("L")},
+                                             "segment": {"Id": self._topo_id("S"), "Number": "0"}})
+        self.project.lines.append(ln)
+        self.project.lines.sort(key=lambda l: (l.area, l.line))
+        return ln
+
+    def area_add(self, area: int | None = None, name: str = "", medium: str = "MT-0") -> int:
+        """Neuer Bereich mit Bereichslinie x.0; ohne Nummer die nächste freie (1–15)."""
+        def do():
+            used = {l.area for l in self.project.lines}
+            a = area if area is not None else next((n for n in range(1, 16) if n not in used), None)
+            if a is None:
+                raise OpError("Alle 15 Bereiche sind belegt")
+            if not 0 <= a <= 15:
+                raise OpError("Bereichsnummer muss zwischen 0 und 15 liegen")
+            if a in used:
+                raise OpError(f"Bereich {a} existiert bereits")
+            attrs = {"Id": self._topo_id("A"), **({"Name": name} if name else {})}
+            self._new_line(a, 0, "", medium, attrs)
+            return a
+        return self.run("Bereich anlegen", do)
+
+    def area_rename(self, area: int, name: str) -> None:
+        def do():
+            for l in self._area_lines(area):
+                attrs = dict((l.extra or {}).get("area") or {})
+                if name:
+                    attrs["Name"] = name
+                else:
+                    attrs.pop("Name", None)
+                l.extra = {**(l.extra or {}), "area": attrs}
+        self.run("Bereich umbenennen", do)
+
+    def area_delete(self, area: int, force: bool = False) -> int:
+        """Bereich samt Linien löschen; mit Geräten nur mit force (die Geräte gehen mit)."""
+        def do():
+            self._area_lines(area)
+            return self._drop_lines(lambda l: l.area == area, force, f"Bereich {area}")
+        return self.run("Bereich löschen", do)
+
+    def line_add(self, area: int, line: int | None = None, name: str = "", medium: str = "MT-0") -> int:
+        def do():
+            siblings = self._area_lines(area)
+            used = {l.line for l in siblings}
+            n = line if line is not None else next((x for x in range(1, 16) if x not in used), None)
+            if n is None:
+                raise OpError(f"Im Bereich {area} sind alle 15 Linien belegt")
+            if not 0 <= n <= 15:
+                raise OpError("Liniennummer muss zwischen 0 und 15 liegen")
+            if n in used:
+                raise OpError(f"Linie {area}.{n} existiert bereits")
+            self._new_line(area, n, name, medium, dict((siblings[0].extra or {}).get("area") or {}))
+            return n
+        return self.run("Linie anlegen", do)
+
+    def line_update(self, area: int, line: int, name: str | None = None, medium: str | None = None) -> None:
+        def do():
+            ln = self._line(area, line)
+            if name is not None:
+                ln.name = name
+            if medium is not None:
+                if medium not in MEDIA:
+                    raise OpError(f"Unbekanntes Medium: {medium}")
+                ln.medium = medium
+        self.run("Linie ändern", do)
+
+    def line_delete(self, area: int, line: int, force: bool = False) -> int:
+        def do():
+            self._line(area, line)
+            if line == 0 and len(self._area_lines(area)) > 1:
+                raise OpError(f"Die Bereichslinie {area}.0 lässt sich nur mit dem ganzen Bereich löschen")
+            return self._drop_lines(lambda l: (l.area, l.line) == (area, line), force, f"Linie {area}.{line}")
+        return self.run("Linie löschen", do)
+
+    def _drop_lines(self, match: Callable[[Line], bool], force: bool, what: str) -> int:
+        keys = {(l.area, l.line) for l in self.project.lines if match(l)}
+        gone = {d.uid for d in self.project.devices if (d.area, d.line) in keys}
+        if gone and not force:
+            raise OpError(f"{what} enthält {len(gone)} Gerät(e)")
+        self.project.lines = [l for l in self.project.lines if not match(l)]
+        self.project.devices = [d for d in self.project.devices if d.uid not in gone]
+        for s in self.project.spaces:
+            s.devices = [u for u in s.devices if u not in gone]
+        return len(gone)
+
+    # --- Gebäude ----------------------------------------------------------------------
+
+    def _space(self, uid: str) -> Space:
+        s = next((s for s in self.project.spaces if s.uid == uid), None)
+        if s is None:
+            raise OpError("Gebäudeteil nicht gefunden")
+        return s
+
+    def _check_place(self, type_: str, parent: Space | None) -> None:
+        if type_ not in SPACE_TYPES:
+            raise OpError(f"Unbekannter Typ: {type_}")
+        allowed = SPACE_CHILDREN.get(parent.type if parent else None, ())
+        if type_ not in allowed:
+            where = f"„{parent.name}“ ({SPACE_TYPES.get(parent.type, parent.type)})" if parent else "oberster Ebene"
+            raise OpError(f"{SPACE_TYPES[type_]} ist in {where} nicht erlaubt")
+
+    def _descendants(self, uid: str) -> set[str]:
+        out, todo = set(), [uid]
+        while todo:
+            cur = todo.pop()
+            for s in self.project.spaces:
+                if s.parent == cur and s.uid not in out:
+                    out.add(s.uid)
+                    todo.append(s.uid)
+        return out
+
+    def _sort_spaces(self) -> None:
+        """Eltern vor Kindern (der Export baut die Hierarchie in Listenreihenfolge)."""
+        ordered: list[Space] = []
+        def add(parent):
+            for s in self.project.spaces:
+                if s.parent == parent:
+                    ordered.append(s)
+                    add(s.uid)
+        add(None)
+        self.project.spaces = ordered
+
+    def space_add(self, parent_uid: str | None, type: str, name: str = "") -> str:
+        def do():
+            parent = self._space(parent_uid) if parent_uid else None
+            self._check_place(type, parent)
+            s = Space(self._new_uid("BP"), type, name or SPACE_TYPES[type], parent_uid)
+            self.project.spaces.append(s)
+            self._sort_spaces()
+            return s.uid
+        return self.run(f"{SPACE_TYPES.get(type, type)} anlegen", do)
+
+    def space_update(self, uid: str, name: str | None = None, type: str | None = None) -> None:
+        def do():
+            s = self._space(uid)
+            if name is not None:
+                s.name = name
+            if type is not None and type != s.type:
+                self._check_place(type, self._space(s.parent) if s.parent else None)
+                for c in self.project.spaces:
+                    if c.parent == uid and c.type not in SPACE_CHILDREN.get(type, ()):
+                        raise OpError(f"„{c.name}“ passt nicht unter {SPACE_TYPES[type]}")
+                s.type = type
+        self.run("Gebäudeteil ändern", do)
+
+    def space_delete(self, uids: list[str]) -> int:
+        """Gebäudeteile samt Unterteilen löschen; Geräte bleiben im Projekt (nur die Zuordnung geht)."""
+        def do():
+            gone: set[str] = set()
+            for u in uids:
+                self._space(u)
+                gone |= {u} | self._descendants(u)
+            self.project.spaces = [s for s in self.project.spaces if s.uid not in gone]
+            return len(gone)
+        return self.run("Gebäudeteile löschen", do)
+
+    def space_move(self, uids: list[str], parent_uid: str | None) -> None:
+        def do():
+            parent = self._space(parent_uid) if parent_uid else None
+            for u in uids:
+                s = self._space(u)
+                if parent_uid == u or parent_uid in self._descendants(u):
+                    raise OpError(f"„{s.name}“ kann nicht in sich selbst verschoben werden")
+                self._check_place(s.type, parent)
+                s.parent = parent_uid
+            self._sort_spaces()
+        self.run("Gebäudeteile verschieben", do)
+
+    def space_assign(self, device_uids: list[str], space_uid: str) -> None:
+        """Geräte einem Raum zuordnen – ein Gerät steht wie in der ETS an genau einem Ort."""
+        def do():
+            target = self._space(space_uid)
+            if target.type in ("Building", "BuildingPart"):
+                raise OpError(f"Geräte gehören in einen Raum, eine Etage oder einen Verteiler, nicht in „{target.name}“")
+            for u in device_uids:
+                self._device(u)
+            moving = set(device_uids)
+            for s in self.project.spaces:
+                if s is not target:
+                    s.devices = [u for u in s.devices if u not in moving]
+            target.devices += [u for u in device_uids if u not in target.devices]
+        self.run("Geräte zuordnen", do)
+
+    def space_unassign(self, device_uids: list[str]) -> None:
+        def do():
+            gone = set(device_uids)
+            for s in self.project.spaces:
+                s.devices = [u for u in s.devices if u not in gone]
+        self.run("Zuordnung lösen", do)
+
+
+MEDIA = {"MT-0": "TP", "MT-5": "IP", "MT-1": "PL", "MT-2": "RF"}
+
+SPACE_TYPES = {
+    "Building": "Gebäude", "BuildingPart": "Gebäudeteil", "Floor": "Etage", "Room": "Raum",
+    "Corridor": "Flur", "Stairway": "Treppenhaus", "DistributionBoard": "Verteiler",
+}
+_INNER = ("Room", "Corridor", "Stairway", "DistributionBoard")
+# Welche Typen unter welchem Elterntyp liegen dürfen (angelehnt an die ETS)
+SPACE_CHILDREN: dict[str | None, tuple[str, ...]] = {
+    None: ("Building",),
+    "Building": ("BuildingPart", "Floor", *_INNER),
+    "BuildingPart": ("BuildingPart", "Floor", *_INNER),
+    "Floor": _INNER,
+    "Room": ("DistributionBoard",),
+    "Corridor": ("DistributionBoard",),
+    "Stairway": ("DistributionBoard",),
+    "DistributionBoard": (),
+}

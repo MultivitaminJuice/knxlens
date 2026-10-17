@@ -12,6 +12,7 @@ export interface MenuEntry {
   disabled?: boolean
   divider?: boolean
   danger?: boolean
+  children?: MenuEntry[]
 }
 
 const props = defineProps<{
@@ -219,14 +220,25 @@ function contextmenu(e: MouseEvent, row: Row) {
   menuY.value = e.clientY
   menuShow.value = true
 }
-const menuOptions = computed<DropdownOption[]>(() =>
-  menuEntries.value.map((m) =>
-    m.divider ? { type: 'divider', key: m.key } : { label: m.label, key: m.key, disabled: m.disabled, props: m.danger ? { style: 'color:#d03050' } : undefined },
-  ),
-)
+function toOptions(entries: MenuEntry[]): DropdownOption[] {
+  return entries.map((m) =>
+    m.divider
+      ? { type: 'divider', key: m.key }
+      : { label: m.label, key: m.key, disabled: m.disabled, props: m.danger ? { style: 'color:#d03050' } : undefined,
+          ...(m.children ? { children: toOptions(m.children) } : {}) },
+  )
+}
+const menuOptions = computed(() => toOptions(menuEntries.value))
+function findEntry(entries: MenuEntry[], key: string): MenuEntry | undefined {
+  for (const m of entries) {
+    if (m.key === key) return m
+    const sub = m.children && findEntry(m.children, key)
+    if (sub) return sub
+  }
+}
 function menuSelect(key: string) {
   menuShow.value = false
-  menuEntries.value.find((m) => m.key === key)?.run?.()
+  findEntry(menuEntries.value, key)?.run?.()
 }
 
 // --- Ziehen & Ablegen -------------------------------------------------------------------------
