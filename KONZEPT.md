@@ -131,7 +131,7 @@ Aktoren auf eibmarkt.de. **Jeder Download nur nach Freigabe (Datei, Quelle, Grö
    Haupt-/Mittelgruppennamen editierbar, nur gesicherte DPTs). Import in der ETS
    noch nicht ausprobiert.
 3. `.knxproj` erzeugen (experimentell, Format nach Vorbild xknxproject).
-   ✅ 16.10.2026 (`knxproj.py`, `knxlens export-knxproj`, Button in der Oberfläche):
+   ✅ 16.10.2026 (damals `knxproj.py`/`export-knxproj`, seit E1 `knxlens project export`):
    Produktdaten + Herstellersignaturen unverändert übernommen, Projektteil erzeugt
    (Topologie, Geräte, geänderte Parameter, Objekt-Verknüpfungen, Modulinstanzen,
    Gruppenadressen, Räume). **Unsigniert** – die ETS-Projektsignatur (Lizenzzertifikat)
