@@ -58,7 +58,7 @@ Bisher gilt „nur lesen“, abgesichert im Code. Das bleibt der Standard. Schre
 
 | Stufe | Inhalt | Abnahme (Testanlage, 40 Geräte) | Schreibt? |
 |---|---|---|---|
-| **E1** Projektmodell | Projektdatei, Import aus Rekonstruktion und `.knxproj`, Export | Testanlage verlustfrei hin und zurück | nein |
+| **E1** Projektmodell ✅ | Projektdatei, Import aus Rekonstruktion und `.knxproj`, Export | Testanlage verlustfrei hin und zurück | nein |
 | **E2** Editor offline | Topologie, GAs, Geräte aus Katalog einfügen, Parameter bearbeiten, Verknüpfen, Räume | Bedienbar; Parameter-Kodierung = Umkehr der Dekodierung | nein |
 | **E3** Download-Abbild | Aus dem Projekt Adress-/Assoziations-/Objekttabelle und Parameterspeicher erzeugen, Ladeablauf aus den Produktdaten ableiten | **Erzeugte Bytes = von den 40 Geräten gelesene Bytes** | nein |
 | **E4** Erster Download | Ladeablauf ausführen (Entladen, Segmente, Laden, Prüfen) an einem unkritischen Gerät | Gerät funktioniert, Rücklesen identisch | ja, 1 Gerät |
@@ -69,6 +69,20 @@ Bisher gilt „nur lesen“, abgesichert im Code. Das bleibt der Standard. Schre
 E3 ist der Kern der Absicherung: Stimmen die erzeugten Bytes für alle 40 Geräte mit dem
 überein, was sie tatsächlich im Speicher haben, ist der Download-Inhalt bewiesen, bevor
 irgendetwas geschrieben wird.
+
+## Stand E1 (17.10.2026)
+
+- Projektdatei `*.knxlens` (SQLite, Schema 1): Topologie, Geräte (Produkt, Parameter,
+  Modulinstanzen, Verknüpfungen), Gruppenadressen mit Bereichen, Gebäude – und die
+  verwendeten Produktdaten komprimiert (Testanlage: 11,6 MB statt 189 MB roh).
+- `.knxproj`-Import (unverschlüsselt) und -Export. **Testanlage: Import → Datei → Export →
+  Import identisch; auch auf XML-Ebene alle 3077 + 5361 Elemente gleich, in gleicher
+  Reihenfolge** (nur Puids neu vergeben). Unbekannte Attribute/Elemente werden wörtlich
+  mitgeführt. Die Projektsignatur der ETS wird nicht übernommen und nicht erzeugt.
+- Rekonstruktion → Projekt: gegen das ETS-Projekt 40/40 Geräte, Produkt, Applikation und
+  GA-Zuordnung je Gerät gleich; 456/588 Verknüpfungen mit exakt gleicher Objektvariante
+  (Rest: gleiches Objekt/GA, Variante geschätzt); 447/450 Parameterwerte gleich.
+- CLI: `knxlens project import|reconstruct|export|info`; Oberfläche: Download `.knxlens`/`.knxproj`.
 
 ## Offene Punkte
 

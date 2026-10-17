@@ -18,7 +18,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from xknx.telegram import GroupAddress
 
-from .. import catalog, compare, decode, device, export, knxproj, params, reference, traffic
+from .. import catalog, compare, decode, device, export, params, reference, traffic
+from ..project.knxproj_io import export_knxproj
+from ..project.reconstruct import from_store
 from ..model import Device
 from ..report import MASK_NAMES
 from ..store import Store
@@ -317,25 +319,32 @@ def create_app(db_path: str, ref_path: str | None = None, product_paths: list[st
         return Response(data, media_type="application/xml",
                         headers={"Content-Disposition": 'attachment; filename="gruppenadressen-ets.xml"'})
 
-    @app.get("/export/projekt.knxproj")
-    def export_project():
-        """Rekonstruiertes Projekt (experimentell, unsigniert)."""
+    def _project():
+        if not any(state.catalog.lookup(d) for d in state.devices.values()):
+            raise HTTPException(400, "Ohne Produktdaten kein Projekt (serve --products …)")
+        project, _ = from_store(state.store(), state.catalog)
+        return project
+
+    @app.get("/export/projekt.knxlens")
+    def export_project_file():
+        """Projektdatei für knxlens (SQLite, mit Produktdaten)."""
         import tempfile
 
-        store = state.store()
-        devices = list(state.devices.values())
-        inp = knxproj.ProjectInput(
-            name="Rekonstruktion", devices=devices, catalog=state.catalog,
-            evaluations={d.pa: state.evaluation(d.pa) for d in devices},
-            ga_names={k: v.get("name", "") for k, v in store.notes("ga").items()},
-            range_names={k: v.get("name", "") for k, v in store.notes("range").items()},
-            dpts={**state.ga_dpt, **state.names.dpt}, device_notes=store.notes("device"),
-        )
-        if not any(state.catalog.lookup(d) for d in devices):
-            raise HTTPException(400, "Ohne Produktdaten kein Projekt (serve --products …)")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = f"{tmp}/projekt.knxlens"
+            _project().save(path)
+            data = Path(path).read_bytes()
+        return Response(data, media_type="application/octet-stream",
+                        headers={"Content-Disposition": 'attachment; filename="rekonstruktion.knxlens"'})
+
+    @app.get("/export/projekt.knxproj")
+    def export_project():
+        """Rekonstruiertes Projekt als .knxproj (unsigniert – nicht für den ETS-Import)."""
+        import tempfile
+
         with tempfile.TemporaryDirectory() as tmp:
             path = f"{tmp}/projekt.knxproj"
-            knxproj.write(inp, path)
+            export_knxproj(_project(), path)
             data = Path(path).read_bytes()
         return Response(data, media_type="application/zip",
                         headers={"Content-Disposition": 'attachment; filename="rekonstruktion.knxproj"'})

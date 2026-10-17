@@ -28,8 +28,9 @@ read-only. UI and docs are German.*
 | Mitschnitt | `knxlens -g <IP> monitor [--duration s]` | Gruppentelegramme in SQLite |
 | Oberfläche | `knxlens serve --products <datei>` | Geräte, Parameter, GAs benennen, Live-Verkehr |
 | Inventar | `knxlens report -o inventar.md` | Markdown ohne Referenzprojekt |
+| Projektdatei | `knxlens project import <x.knxproj> -o p.knxlens` / `project reconstruct --products … -o p.knxlens` | Projekt aus ETS bzw. aus der Rekonstruktion |
 | ETS-Export | Oberfläche → *ETS-Import (XML)* | Gruppenadressen-Import für die ETS |
-| Projektdatei | `knxlens export-knxproj …` | `.knxproj` (unsigniert, nicht ETS-importierbar) |
+| `.knxproj` | `knxlens project export p.knxlens -o x.knxproj` | unsigniert, nicht ETS-importierbar |
 
 Unterstützte Geräte: System 7 und System B (Masken 0x07xx) an echten Geräten geprüft;
 BCU1/BCU2 (0x001x/0x002x, z. B. ältere Tastsensoren) nach Spezifikation implementiert,

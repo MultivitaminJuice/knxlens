@@ -97,31 +97,36 @@ async def cmd_read_params(args: argparse.Namespace) -> None:
             print(pa, json.dumps(summary, ensure_ascii=False))
 
 
-def cmd_export_knxproj(args: argparse.Namespace) -> None:
-    from . import catalog, knxproj, params
+def cmd_project(args: argparse.Namespace) -> None:
+    from . import catalog
+    from .project import Project
+    from .project.knxproj_io import export_knxproj, import_knxproj
+    from .project.reconstruct import from_store
 
-    store = Store(args.db)
-    cat = catalog.Catalog()
-    for path in args.products:
-        cat.add(path)
-    devices = _decoded(store)
-    evaluations, cache = {}, {}
-    for d in devices:
-        app = cat.lookup(d)
-        if app is None:
-            continue
-        ap = cache.get(app.key) or cache.setdefault(app.key, params.AppParams(app))
-        ev = params.evaluate_from_store(ap, decode.Raw(store, d.pa), {n for n, _ in d.links})
-        evaluations[d.pa] = ev if any(v.from_device for v in ev.values) else None
-    inp = knxproj.ProjectInput(
-        name=args.name, devices=devices, catalog=cat, evaluations=evaluations,
-        ga_names={k: v.get("name", "") for k, v in store.notes("ga").items()},
-        range_names={k: v.get("name", "") for k, v in store.notes("range").items()},
-        dpts=catalog.ga_dpts(devices, cat), device_notes=store.notes("device"),
-    )
-    stats = knxproj.write(inp, args.out)
-    print(f"geschrieben: {args.out}")
-    print(json.dumps(stats, ensure_ascii=False))
+    if args.action == "import":
+        p = import_knxproj(args.source)
+        p.save(args.out)
+        print(f"{args.out}: {_project_summary(p)}")
+    elif args.action == "reconstruct":
+        cat = catalog.Catalog()
+        for path in args.products or []:
+            cat.add(path)
+        p, stats = from_store(Store(args.db), cat, args.name)
+        p.save(args.out)
+        print(f"{args.out}: {_project_summary(p)}")
+        print("geschätzte Objektvarianten:", stats["objects_guessed"], "| ohne Produktdaten:", stats["without_product"])
+    elif args.action == "export":
+        p = Project.load(args.source)
+        stats = export_knxproj(p, args.out)
+        print(f"{args.out}: {json.dumps(stats, ensure_ascii=False)} – unsigniert, von der ETS nicht importierbar")
+    elif args.action == "info":
+        print(_project_summary(Project.load(args.source)))
+
+
+def _project_summary(p) -> str:
+    return (f"„{p.name}“ · {len(p.devices)} Geräte · {len(p.group_addresses)} GAs · "
+            f"{sum(len(l.gas) for d in p.devices for l in d.links)} Verknüpfungen · "
+            f"{sum(len(d.params) for d in p.devices)} Parameterwerte · {len(p.spaces)} Räume/Bereiche")
 
 
 async def cmd_monitor(args: argparse.Namespace) -> None:
@@ -177,11 +182,13 @@ def main() -> None:
     s.add_argument("--products", action="append", required=True)
     s.set_defaults(func=cmd_read_params)
 
-    s = sub.add_parser("export-knxproj", help="Rekonstruktion als .knxproj (experimentell)")
-    s.add_argument("--products", action="append", required=True)
+    s = sub.add_parser("project", help="Projektdatei (*.knxlens): import, reconstruct, export, info")
+    s.add_argument("action", choices=["import", "reconstruct", "export", "info"])
+    s.add_argument("source", nargs="?", help="import: .knxproj · export/info: .knxlens")
+    s.add_argument("-o", "--out", help="Zieldatei")
+    s.add_argument("--products", action="append", help="reconstruct: Produktdaten (.knxprod/.knxproj)")
     s.add_argument("--name", default="Rekonstruktion")
-    s.add_argument("-o", "--out", required=True)
-    s.set_defaults(func=cmd_export_knxproj)
+    s.set_defaults(func=cmd_project)
 
     s = sub.add_parser("monitor", help="Gruppentelegramme passiv mitschneiden (sendet nichts)")
     s.add_argument("--duration", type=float, help="Sekunden; ohne Angabe bis Strg-C")
