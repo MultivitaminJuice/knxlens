@@ -104,6 +104,11 @@ export class ApiError extends Error {
   }
 }
 
+export interface MonitorRow {
+  id: number; ts: number; src: string; src_name: string; dst: string; dst_name: string; dpt: string
+  service: string; raw: string; value: string; known: boolean
+}
+
 export interface Orphan { ref: string; number: number; text: string; gas: string[] }
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -133,6 +138,11 @@ export const api = {
   ga: (address: string) => get<GaDetail>(`/api/ga/${address}`),
   setParam: (uid: string, id: string, value: string | null, orphans: 'ask' | 'keep' | 'unlink' = 'ask') =>
     send<DeviceDetail>('PUT', `/api/device/${encodeURIComponent(uid)}/param`, { id, value, orphans }),
+  monitor: (since: number) =>
+    get<{ state: string; gateway: string; own: string; error: string; rows: MonitorRow[] }>(`/api/monitor?since=${since}`),
+  monitorStart: (gateway: string) => send<{ state: string }>('POST', '/api/monitor/start', { gateway }),
+  monitorStop: () => send<{ state: string }>('POST', '/api/monitor/stop'),
+  monitorClear: () => send<{ ok: boolean }>('POST', '/api/monitor/clear'),
   orphans: () => get<{ uid: string; pa: string | null; name: string; orphans: Orphan[] }[]>('/api/orphans'),
   unlinkOrphans: (uids: string[] | null) => send<{ unlinked: number }>('POST', '/api/orphans/unlink', { uids }),
   save: () => send<{ saved: string }>('POST', '/api/project/save'),

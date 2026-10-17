@@ -6,6 +6,7 @@ die Oberfläche zeigt nur an und schickt Änderungen. Kein Buszugriff.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,6 +23,8 @@ from ..project.edit import (EditError, editor_item, orphans, param_change_effect
 from ..project.ops import MEDIA, SPACE_CHILDREN, SPACE_TYPES, Editor, OpError
 from ..project.reconstruct import catalog_key as _catalog_key, rel_ref
 from ..project.ops import ga_raw as GroupAddressRaw
+from ..traffic import format_value
+from .busmon import SERVICES, BusMonitor
 from ..project.products import MAX_PRODUCT_FILE, ProductError, add_products, app_for, project_catalog
 
 STATIC = Path(__file__).parent.parent / "web" / "static" / "editor"
@@ -137,7 +140,18 @@ class UidsIn(BaseModel):
     uids: list[str] | None = None  # None = alle Geräte
 
 
-def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
+class MonitorIn(BaseModel):
+    gateway: str
+
+
+def _dpt(text: str) -> dict | None:
+    """'DPST-9-1' / 'DPT-9' → {'main': 9, 'sub': 1} für die Wertanzeige."""
+    import re
+    m = re.match(r"DPS?T-(\d+)(?:-(\d+))?", text or "")
+    return {"main": int(m[1]), "sub": int(m[2]) if m[2] else None} if m else None
+
+
+def create_editor_app(project_path: str, preload: bool = True, gateway: str = "") -> FastAPI:
     path = Path(project_path)
     state = EditorState(path, Project.load(path))
     state.ops = Editor(state.project)
@@ -147,7 +161,59 @@ def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
         for d in state.project.devices:  # Parameterteil der verwendeten Applikationen
             if (app_ := state.app(d)) is not None:
                 state.app_params(app_)
-    app = FastAPI(title="knxlens Editor", docs_url=None, redoc_url=None)
+    monitor = BusMonitor()
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        yield
+        await monitor.stop()  # Tunnelverbindung beim Beenden sauber abbauen
+
+    app = FastAPI(title="knxlens Editor", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+    @app.get("/api/monitor")
+    def monitor_rows(since: int = 0, limit: int = 2000):
+        p = state.project
+        names = {d.pa: d.name or state.product_name(d) for d in p.devices if d.pa}
+        obj_dpt: dict[str, dict] = {}  # GA ohne eigenen DPT: Typ eines verknüpften Objekts
+        for d in p.devices:
+            app_ = state.app(d)
+            for link in d.links:
+                own = _dpt(link.extra.get("DatapointType", ""))
+                v = app_.variant_by_ref.get(_catalog_key(app_, link.ref)) if app_ and not own else None
+                found = own or (v.dpt if v and v.dpt else None)
+                for g in link.gas:
+                    if found:
+                        obj_dpt.setdefault(g, found)
+        rows = []
+        for r in monitor.since(since)[-limit:]:
+            g = p.group_addresses.get(r["dst"])
+            rows.append({
+                "id": r["id"], "ts": r["ts"], "src": r["src"], "src_name": names.get(r["src"], ""),
+                "dst": r["dst"], "dst_name": g.name if g else "", "dpt": g.dpt if g else "",
+                "service": SERVICES.get(r["service"], r["service"]),
+                "raw": r["payload"].hex(" ") if r["payload"] is not None else ("" if r["bits"] is None else str(r["bits"])),
+                "value": format_value(r["payload"], r["bits"], (_dpt(g.dpt) if g else None) or obj_dpt.get(r["dst"])),
+                "known": g is not None,
+            })
+        return {"state": monitor.state, "gateway": monitor.gateway or gateway, "own": monitor.own,
+                "error": monitor.error, "rows": rows}
+
+    @app.post("/api/monitor/start")
+    async def monitor_start(body: MonitorIn):
+        if not body.gateway.strip():
+            raise HTTPException(422, "IP-Adresse des KNX-IP-Interfaces fehlt")
+        await monitor.start(body.gateway.strip())
+        return {"state": monitor.state}
+
+    @app.post("/api/monitor/stop")
+    async def monitor_stop():
+        await monitor.stop()
+        return {"state": monitor.state}
+
+    @app.post("/api/monitor/clear")
+    def monitor_clear():
+        monitor.clear()
+        return {"ok": True}
 
     def _orphan_count() -> int:
         n = 0

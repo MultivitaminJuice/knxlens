@@ -98,3 +98,23 @@ def test_param_change_asks_before_orphaning(client, monkeypatch):
     assert r.status_code == 200 and not any(o["number"] == 0 and o["gas"] for o in r.json()["objects"])
     client.post("/api/undo")
     assert any(o["number"] == 0 and o["gas"] for o in client.get("/api/device/P-0123-0_DI-1").json()["objects"])
+
+
+def test_monitor_rows_decoded(client):
+    from xknx.dpt import DPTArray, DPTBinary
+    from xknx.telegram import GroupAddress, IndividualAddress, Telegram
+    from xknx.telegram.apci import GroupValueWrite
+    app = client.app
+    mon = next(r.endpoint for r in app.routes if getattr(r, "path", "") == "/api/monitor").__closure__
+    monitor = next(c.cell_contents for c in mon if type(c.cell_contents).__name__ == "BusMonitor")
+    monitor._received(Telegram(GroupAddress("1/1/1"), source_address=IndividualAddress("1.1.5"),
+                               payload=GroupValueWrite(DPTBinary(1))))
+    monitor._received(Telegram(GroupAddress("1/2/0"), source_address=IndividualAddress("1.1.9"),
+                               payload=GroupValueWrite(DPTArray((0x0C, 0x1A)))))
+    r = client.get("/api/monitor").json()
+    assert r["state"] == "getrennt" and len(r["rows"]) == 2
+    a, b = r["rows"]
+    assert a["src_name"] == "Taster Flur" and a["service"] == "Schreiben" and a["raw"] == "1"
+    assert b["dst"] == "1/2/0" and b["value"].endswith("°C")  # DPT 9.001 aus dem Projekt
+    assert client.get(f"/api/monitor?since={a['id']}").json()["rows"] == [b]
+    assert client.post("/api/monitor/start", json={"gateway": " "}).status_code == 422

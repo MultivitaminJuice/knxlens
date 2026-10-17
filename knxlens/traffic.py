@@ -46,6 +46,16 @@ def size_of(payload: bytes | None, bits: int | None, max_bits: int = 0) -> str |
     return None
 
 
+def _date_time(value) -> str | None:
+    """KNXDate/KNXTime/KNXDateTime lesbar: 18.10.2026 01:23:16"""
+    parts = []
+    if all(hasattr(value, k) for k in ("year", "month", "day")):
+        parts.append(f"{value.day:02d}.{value.month:02d}.{value.year}")
+    if all(hasattr(value, k) for k in ("hour", "minutes", "seconds")):
+        parts.append(f"{value.hour:02d}:{value.minutes:02d}:{value.seconds:02d}")
+    return " ".join(parts) if parts else None
+
+
 def format_value(payload: bytes | None, bits: int | None, dpt: dict | None) -> str:
     if payload is None and bits is None:
         return ""
@@ -55,6 +65,8 @@ def format_value(payload: bytes | None, bits: int | None, dpt: dict | None) -> s
             transcoder = DPTBase.parse_transcoder(dpt)
             if transcoder is not None:
                 value = transcoder.from_knx(raw)
+                if (text := _date_time(value)) is not None:
+                    return text
                 if hasattr(value, "name") and not isinstance(value, (int, float)):
                     return {"ON": "Ein", "OFF": "Aus", "TRUE": "Ein", "FALSE": "Aus"}.get(value.name, value.name)
                 if isinstance(value, float):

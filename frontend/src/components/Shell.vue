@@ -9,7 +9,7 @@ import DockPane from './DockPane.vue'
 import HeaderActions from './HeaderActions.vue'
 import ParamDialog from './ParamDialog.vue'
 import CommandPalette from './CommandPalette.vue'
-import { loadAll, panes, redo, save, store, undo, VIEW_TITLES, type TreeKind } from '../store'
+import { loadAll, panes, redo, save, store, undo, VIEW_TITLES, type TreeKind, type ViewKind } from '../store'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -48,7 +48,7 @@ const palette = ref(false)
 const error = ref('')
 const LAYOUT_KEY = 'knxlens:layout:v1'
 
-type View = TreeKind | 'inspector'
+type View = ViewKind
 let counter = 0
 function nextId(kind: View) {
   const used = new Set(api.value?.panels.map((p) => p.id) ?? [])
@@ -165,6 +165,7 @@ function onKey(e: KeyboardEvent) {
 function onLeave(e: BeforeUnloadEvent) {
   if (store.project?.dirty) e.preventDefault()
 }
+store.reveal = reveal
 onMounted(async () => {
   window.addEventListener('keydown', onKey)
   window.addEventListener('beforeunload', onLeave)

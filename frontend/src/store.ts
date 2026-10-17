@@ -50,6 +50,7 @@ export const store = reactive({
   busy: false,
   version: 0, // zählt nach jeder Änderung hoch (Bäume neu aufbauen)
   notify: (() => {}) as Notify,
+  reveal: null as ((kind: TreeKind, key: string) => Promise<void>) | null, // setzt die Shell
 })
 
 // --- Bäume aus der API ---------------------------------------------------------------
@@ -280,10 +281,12 @@ export function dropAction(target: Item, items: Item[], copy: boolean): { label:
 export interface PaneHandle { kind: TreeKind; reveal: (key: string) => Promise<boolean | undefined> }
 export const panes = new Map<string, PaneHandle>()
 
-export const VIEW_TITLES: Record<TreeKind | 'inspector', string> = {
+export type ViewKind = TreeKind | 'inspector' | 'monitor'
+export const VIEW_TITLES: Record<ViewKind, string> = {
   groupaddresses: 'Gruppenadressen',
   topology: 'Topologie',
   buildings: 'Gebäude',
   catalog: 'Katalog',
   inspector: 'Eigenschaften',
+  monitor: 'Gruppenmonitor',
 }
