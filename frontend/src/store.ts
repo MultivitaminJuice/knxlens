@@ -249,3 +249,16 @@ export function dropAction(target: Item, items: Item[], copy: boolean): { label:
   }
   return null
 }
+
+// --- Offene Fenster (dockview-Panels) ---------------------------------------------------
+// Jede Baumansicht meldet sich hier an, damit Suche/Befehle sie ansteuern können.
+export interface PaneHandle { kind: TreeKind; reveal: (key: string) => Promise<boolean | undefined> }
+export const panes = new Map<string, PaneHandle>()
+
+export const VIEW_TITLES: Record<TreeKind | 'inspector', string> = {
+  groupaddresses: 'Gruppenadressen',
+  topology: 'Topologie',
+  buildings: 'Gebäude',
+  catalog: 'Katalog',
+  inspector: 'Eigenschaften',
+}

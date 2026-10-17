@@ -1,21 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { NButton, NInput, useDialog } from 'naive-ui'
 import TreeView, { type MenuEntry } from './TreeView.vue'
-import { run, select, store, type Item, type TreeKind } from '../store'
+import { panes, run, store, type Item, type TreeKind } from '../store'
 
-const props = defineProps<{ initial: TreeKind; paneId: string }>()
-const tab = ref<TreeKind>(props.initial)
+// Ein Fenster zeigt genau eine Ansicht; Reiter, Schließen und Anordnen übernimmt dockview.
+const props = defineProps<{ kind: TreeKind; paneId: string }>()
+const tab = computed(() => props.kind)
 const filter = ref('')
 const tree = ref<InstanceType<typeof TreeView> | null>(null)
 const dialog = useDialog()
 
-const tabs: { value: TreeKind; label: string }[] = [
-  { value: 'groupaddresses', label: 'Gruppenadressen' },
-  { value: 'topology', label: 'Topologie' },
-  { value: 'buildings', label: 'Gebäude' },
-  { value: 'catalog', label: 'Katalog' },
-]
 const items = computed(() => store.trees[tab.value])
 
 function confirm(title: string, content: string, ok: () => unknown) {
@@ -116,13 +111,13 @@ function keydown(e: KeyboardEvent) {
   }
 }
 
-async function reveal(kind: TreeKind, key: string) {
-  tab.value = kind
+async function reveal(key: string) {
   filter.value = ''
   await new Promise((r) => setTimeout(r, 0))
   return tree.value?.reveal(key)
 }
-defineExpose({ reveal, tab })
+onMounted(() => panes.set(props.paneId, { kind: props.kind, reveal }))
+onBeforeUnmount(() => panes.delete(props.paneId))
 
 const hint = computed(() => ({
   groupaddresses: 'GA auf ein Objekt ziehen = verknüpfen · auf eine Mittelgruppe = verschieben (⌥ kopieren)',
@@ -134,16 +129,12 @@ const hint = computed(() => ({
 
 <template>
   <section class="pane" @keydown="keydown" @focusin="() => {}">
-    <nav class="tabs">
-      <button v-for="t in tabs" :key="t.value" :class="{ on: tab === t.value }" @click="tab = t.value; select([])">{{ t.label }}</button>
-    </nav>
     <div class="tools">
       <NInput v-model:value="filter" size="small" clearable placeholder="Filtern …" class="filter" />
       <NButton v-if="tab === 'groupaddresses'" size="small" @click="addRange(null)" title="Neue Hauptgruppe">+ Hauptgruppe</NButton>
     </div>
     <TreeView
       ref="tree"
-      :key="tab"
       :items="items"
       :tree-id="`${paneId}-${tab}`"
       :filter="filter"
@@ -161,9 +152,6 @@ const hint = computed(() => ({
 
 <style scoped>
 .pane { height: 100%; display: flex; flex-direction: column; min-width: 0; background: var(--kl-bg); }
-.tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--kl-border); }
-.tabs button { font: inherit; font-size: 13px; padding: 6px 10px; border: 0; background: none; color: var(--kl-muted); border-bottom: 2px solid transparent; cursor: pointer; }
-.tabs button.on { color: var(--kl-text); border-bottom-color: var(--kl-accent); font-weight: 600; }
 .tools { display: flex; gap: 6px; padding: 6px 8px; }
 .filter { flex: 1; }
 .body { flex: 1; min-height: 0; }

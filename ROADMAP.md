@@ -105,6 +105,10 @@ irgendetwas geschrieben wird.
   löschen, GA-Adresse ändern, GAs verschieben (Verknüpfungen wandern mit) und kopieren,
   verknüpfen/lösen/sendende GA, Geräte einfügen (Katalog), kopieren inkl. Parameter, PA ändern,
   auf andere Linie verschieben, löschen.
+- **Fenster frei anordnen** (dockview, MIT, auf 8.4.0 festgelegt): jede Ansicht ein Fenster,
+  schließen, als Reiter stapeln, an Ränder ziehen zum Teilen; Menü „Ansicht“ mit Fenstern und
+  Vorlagen (eins, zwei neben-/untereinander, zwei untereinander + Eigenschaften rechts …);
+  Layout wird im Browser gemerkt.
 - Offen: Gebäude bearbeiten, Linien/Bereiche anlegen, neue `.knxprod` ins Projekt laden,
   Mehrfach-Umnummerieren, Geräte-Parameter mehrerer Geräte gleichzeitig.
 - Offen aus E2.2: `Assign`-Regeln der Produktdaten (versteckte Folgewerte) werden noch nicht

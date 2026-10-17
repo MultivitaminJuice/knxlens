@@ -47,7 +47,9 @@ python3 -m venv .venv
 
 Die Editor-Oberfläche (Vue/TypeScript) liegt fertig gebaut im Paket. Nur wer sie ändert,
 braucht Node: `cd frontend && npm install && npm run build` (Entwicklung: `npm run dev`,
-API dazu mit `knxlens edit … --port 8770`).
+API dazu mit `knxlens edit … --port 8770`). Liegt das Repo in einem iCloud-synchronisierten
+Ordner, `frontend/node_modules` (wie die venv) per Symlink nach außerhalb legen – iCloud
+erzeugt sonst Konfliktkopien („Datei 2“).
 
 Python ≥ 3.11. Auf macOS mit iCloud-synchronisiertem `~/Documents` die venv besser
 außerhalb anlegen (iCloud setzt das *hidden*-Flag auf `.pth`-Dateien, Python ≥ 3.13
