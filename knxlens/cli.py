@@ -133,6 +133,19 @@ async def cmd_monitor(args: argparse.Namespace) -> None:
     await monitor.run(args.gateway, Store(args.db), args.duration)
 
 
+def cmd_edit(args: argparse.Namespace) -> None:
+    import uvicorn
+
+    from .editor import STATIC, create_editor_app
+
+    if not (STATIC / "index.html").exists():
+        raise SystemExit("Editor-Oberfläche nicht gebaut: cd frontend && npm install && npm run build")
+    if args.host not in ("127.0.0.1", "localhost"):
+        print(f"Achtung: Editor ohne Anmeldung unter {args.host}:{args.port} erreichbar.")
+    print(f"Editor: http://{args.host}:{args.port}  ({args.project})")
+    uvicorn.run(create_editor_app(args.project), host=args.host, port=args.port, log_level="warning")
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -193,6 +206,12 @@ def main() -> None:
     s = sub.add_parser("monitor", help="Gruppentelegramme passiv mitschneiden (sendet nichts)")
     s.add_argument("--duration", type=float, help="Sekunden; ohne Angabe bis Strg-C")
     s.set_defaults(func=cmd_monitor)
+
+    s = sub.add_parser("edit", help="Projekt im Editor öffnen (Browser)")
+    s.add_argument("project", help="Projektdatei *.knxlens")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8770)
+    s.set_defaults(func=cmd_edit)
 
     s = sub.add_parser("serve", help="Weboberfläche (nur gespeicherte Daten, kein Buszugriff)")
     s.add_argument("--reference", help="xknxproject-JSON des Referenzprojekts (optional)")

@@ -26,7 +26,8 @@ read-only. UI and docs are German.*
 | Geräte lesen | `knxlens -g <IP> read` | Hersteller, Applikation, Adress-/Assoziations-/Objekttabellen |
 | Parameter lesen | `knxlens -g <IP> read-params --products <datei>` | Parameterspeicher der Geräte |
 | Mitschnitt | `knxlens -g <IP> monitor [--duration s]` | Gruppentelegramme in SQLite |
-| Oberfläche | `knxlens serve --products <datei>` | Geräte, Parameter, GAs benennen, Live-Verkehr |
+| Oberfläche (Rekonstruktion) | `knxlens serve --products <datei>` | Geräte, Parameter, GAs benennen, Live-Verkehr |
+| Editor | `knxlens edit projekt.knxlens` | Projekt im Browser: Topologie, Gebäude, GAs, Objekte, Parameter (im Aufbau) |
 | Inventar | `knxlens report -o inventar.md` | Markdown ohne Referenzprojekt |
 | Projektdatei | `knxlens project import <x.knxproj> -o p.knxlens` / `project reconstruct --products … -o p.knxlens` | Projekt aus ETS bzw. aus der Rekonstruktion |
 | ETS-Export | Oberfläche → *ETS-Import (XML)* | Gruppenadressen-Import für die ETS |
@@ -43,6 +44,10 @@ python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/pytest
 ```
+
+Die Editor-Oberfläche (Vue/TypeScript) liegt fertig gebaut im Paket. Nur wer sie ändert,
+braucht Node: `cd frontend && npm install && npm run build` (Entwicklung: `npm run dev`,
+API dazu mit `knxlens edit … --port 8770`).
 
 Python ≥ 3.11. Auf macOS mit iCloud-synchronisiertem `~/Documents` die venv besser
 außerhalb anlegen (iCloud setzt das *hidden*-Flag auf `.pth`-Dateien, Python ≥ 3.13

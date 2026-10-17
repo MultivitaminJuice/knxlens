@@ -34,9 +34,10 @@ knxlens/
   einem nativen Fenster (pywebview). Auf dem Pi läuft dasselbe kopflos als Server.
 - **Projektdatei:** eine SQLite-Datei (`*.knxlens`) – ein File, transaktionssicher,
   versionierbar über Export. Import aus Rekonstruktion und aus `.knxproj` (unverschlüsselt).
-- **Oberfläche:** Für Editor-Funktionen (Bäume, Drag & Drop beim Verknüpfen, Parameterseiten)
-  reicht serverseitiges HTML auf Dauer nicht. Entscheidung bei E2: kleines Frontend-Framework
-  mit Build-Schritt (Ergebnis wird als statische Dateien mitgeliefert, zur Laufzeit kein Node).
+- **Oberfläche:** Vue 3 + TypeScript + Vite, Komponenten von **Naive UI** (MIT). Das gebaute
+  Frontend liegt in `knxlens/web/static/editor` und wird mit dem Python-Paket ausgeliefert –
+  zur Laufzeit kein Node. (PrimeVue verworfen: ab Version 5 kommerzielle „PrimeUI License“
+  mit Lizenzschlüssel, unvereinbar mit einem offenen MIT-Projekt.) Desktop-Hülle: Tauri in E6 prüfen.
 - **Kaenx** (GPL, C#, Windows/UWP, Download noch unfertig) dient nur als Ideenquelle –
   kein Code übernehmen (knxlens ist MIT).
 
@@ -83,6 +84,15 @@ irgendetwas geschrieben wird.
   GA-Zuordnung je Gerät gleich; 456/588 Verknüpfungen mit exakt gleicher Objektvariante
   (Rest: gleiches Objekt/GA, Variante geschätzt); 447/450 Parameterwerte gleich.
 - CLI: `knxlens project import|reconstruct|export|info`; Oberfläche: Download `.knxlens`/`.knxproj`.
+
+## Stand E2 (17.10.2026)
+
+- **E2.1 ✅** `knxlens edit projekt.knxlens`: Navigator (Topologie, Gebäude, Gruppenadressen mit
+  Filter), Geräteansicht (aktive Objekte, Verknüpfungen, DPT, Flags), GA-Ansicht (Nutzer,
+  sendende GA), Parameter nach ETS-Seiten – Werte aus dem Projekt, Sichtbarkeit vom Kern
+  berechnet. Noch nur lesend.
+- E2.2 Parameter bearbeiten (Kodierung, Live-Sichtbarkeit), E2.3 Verknüpfen per Drag & Drop,
+  GAs/Geräte/Räume anlegen, E2.4 Rückgängig/Suche/Tastatur.
 
 ## Offene Punkte
 

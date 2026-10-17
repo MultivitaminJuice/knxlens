@@ -21,10 +21,10 @@ dev = ["pytest", "httpx"]
 knxlens = "knxlens.cli:main"
 
 [tool.setuptools]
-packages = ["knxlens", "knxlens.web"]
+packages = ["knxlens", "knxlens.web", "knxlens.editor", "knxlens.project"]
 
 [tool.setuptools.package-data]
-"knxlens.web" = ["templates/*.html", "static/*"]
+"knxlens.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/editor/*", "static/editor/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

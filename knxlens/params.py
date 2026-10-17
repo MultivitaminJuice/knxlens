@@ -103,6 +103,7 @@ class Value:
     uncertain: bool
     internal: bool = False  # versteckter Hilfsparameter (kein Text / nicht editierbar)
     untouched: bool = False  # Speicher = Standardbild der Produktdatei, Wert ≠ Parameter-Standard
+    from_project: bool = False  # Wert aus dem Projekt (Editor-Modus) statt aus dem Gerät
 
     @property
     def param_key(self) -> str:
@@ -253,6 +254,17 @@ class AppParams:
             ev.walk(self.dynamic, Context(), (), False)
         return ev
 
+    def evaluate_values(self, values: dict[str, str]) -> Evaluation:
+        """Auswertung aus Projektwerten (Editor): values = {ParameterInstanceRef-Id: Wert}.
+
+        Fehlende Parameter haben ihren Standardwert. Kein Speicherzugriff, keine Ableitung.
+        """
+        keyed = {re.sub(r"_R-\d+$", "", k): v for k, v in values.items()}
+        ev = Evaluation(self, lambda a, n: None, lambda o, p: None, lambda l: None, set(), keyed)
+        if self.dynamic is not None:
+            ev.walk(self.dynamic, Context(), (), False)
+        return ev
+
     def module_args(self, instance_id: str) -> list[tuple[str, str]] | None:
         """Argumente einer Modulinstanz aus den Produktdaten."""
         for m in _children(self.prog, "Module"):
@@ -285,9 +297,11 @@ class AppParams:
 
 
 class Evaluation:
-    def __init__(self, ap: AppParams, mem: MemFn, prop: PropFn, rel_base, linked: set[int] | None = None) -> None:
+    def __init__(self, ap: AppParams, mem: MemFn, prop: PropFn, rel_base, linked: set[int] | None = None,
+                 values: dict[str, str] | None = None) -> None:
         self.ap = ap
         self.linked = linked or set()
+        self.project_values = values  # Editor-Modus: Werte aus dem Projekt statt aus dem Speicher
         self.mem = mem
         self.prop = prop
         self.rel_base = rel_base
@@ -361,18 +375,31 @@ class Evaluation:
         ref = self.ap.refs.get(ref_id)
         if ref is None:
             return None
-        raw = self.read_raw(ref.param, ctx)
-        value, display = decode_value(ref.param.ptype, raw, ref.param.suffix)
-        from_device = raw is not None
-        if not from_device:
-            value, display = _default(ref)
         instance_id = ref_id
         if ctx.instance and ctx.module_def and ref_id.startswith(ctx.module_def + "_"):
             instance_id = f"{ctx.instance}_MI-1_{ref_id[len(ctx.module_def) + 1:]}"
+        from_project = False
+        if self.project_values is not None:
+            raw = None
+            stored = self.project_values.get(re.sub(r"_R-\d+$", "", instance_id))
+            if stored is not None:
+                value, display = parse_value(ref, stored)
+                from_project = True
+            else:
+                value, display = _default(ref)
+            from_device = False
+        else:
+            raw = self.read_raw(ref.param, ctx)
+            value, display = decode_value(ref.param.ptype, raw, ref.param.suffix)
+            from_device = raw is not None
+            if not from_device:
+                value, display = _default(ref)
         internal = not ref.text.strip() or ref.access in ("None", "Read")
         untouched = from_device and not _same(value, ref.default) and self._matches_image(ref.param, ctx)
+        editor = self.project_values is not None
         v = Value(ref_id, instance_id, path, _fill(ref.text, ctx.text), raw, value, display, ref.default,
-                  from_device, uncertain or not from_device or untouched, internal, untouched)
+                  from_device, (not editor) and (uncertain or not from_device or untouched), internal, untouched,
+                  from_project)
         self._cache[key] = v
         return v
 
@@ -397,7 +424,7 @@ class Evaluation:
                 v = self.resolve(child.get("ParamRefId"), ctx, path, uncertain)
                 matched = False
                 whens = [w for w in child if _local(w.tag) == "when"]
-                if v is not None and not v.from_device:
+                if v is not None and not v.from_device and self.project_values is None:
                     best = self._infer_branch(whens, ctx)
                     if best is not None:
                         self.inferred.append(f"{v.text or v.ref_id} → Zweig {best.get('test') or 'default'}")
@@ -564,6 +591,31 @@ def decode_value(t: PType, raw, suffix: str = "") -> tuple[object, str]:
     if t.kind == "color":
         return raw.hex(), "#" + raw.hex()
     return raw, str(raw)
+
+
+def parse_value(ref: PRef, text: str) -> tuple[object, str]:
+    """Wert aus dem Projekt (Text wie in ParameterInstanceRef) → (Wert, Anzeige)."""
+    t = ref.param.ptype
+    unit = f" {ref.param.suffix}" if ref.param.suffix else ""
+    try:
+        if t.kind == "enum":
+            v = int(float(text))
+            return v, t.enums.get(v, f"? ({v})")
+        if t.kind == "number":
+            v = int(float(text))
+            return v, f"{v}{unit}"
+        if t.kind == "time":
+            v = int(float(text))
+            if t.unit == "PackedDaysHoursMinutesAndSeconds":
+                h, rest = divmod(v, 3600)
+                return v, f"{h:02d}:{rest // 60:02d}:{rest % 60:02d}"
+            return v, f"{v} {t.unit}".strip()
+        if t.kind == "float":
+            v = float(text)
+            return v, f"{round(v, 4)}{unit}"
+    except ValueError:
+        pass
+    return text, text
 
 
 def _default(ref: PRef) -> tuple[object, str]:
