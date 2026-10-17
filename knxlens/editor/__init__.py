@@ -18,6 +18,9 @@ from .. import params
 from ..catalog import Application, Catalog
 from ..project import Device, Project
 from ..project.edit import EditError, editor_item, set_param
+from ..project.ops import Editor, OpError
+from ..project.reconstruct import rel_ref
+from ..project.ops import ga_raw as GroupAddressRaw
 from ..project.products import app_for, project_catalog
 
 STATIC = Path(__file__).parent.parent / "web" / "static" / "editor"
@@ -29,6 +32,7 @@ class EditorState:
     path: Path
     project: Project
     dirty: bool = False
+    ops: Editor | None = None
     _catalog: Catalog | None = None
     _app_params: dict[str, params.AppParams] = field(default_factory=dict)
 
@@ -96,7 +100,7 @@ def device_detail(state: EditorState, d: Device) -> dict:
         if v is None or number is None:
             continue
         objects.append({
-            "number": number, "text": v.text, "function": v.function, "size": v.size,
+            "ref": rel_ref(app, key), "number": number, "text": v.text, "function": v.function, "size": v.size,
             "dpt": f"{v.dpt['main']}.{v.dpt['sub']:03d}" if v.dpt and v.dpt.get("sub") is not None
             else (str(v.dpt["main"]) if v.dpt else ""),
             "flags": "".join(c if v.flags.get(k) else "-" for c, k in zip(
@@ -116,6 +120,20 @@ def device_detail(state: EditorState, d: Device) -> dict:
     return out
 
 
+class OpIn(BaseModel):
+    op: str
+    args: dict = {}
+
+
+# Erlaubte Befehle der Oberfläche (Name → Editor-Methode)
+OPS = {name: getattr(Editor, name) for name in (
+    "range_add", "range_rename", "range_delete",
+    "ga_add", "ga_update", "ga_readdress", "ga_move", "ga_copy", "ga_delete",
+    "link", "unlink", "set_sending",
+    "device_update", "device_set_pa", "device_move", "device_copy", "device_delete", "device_insert",
+)}
+
+
 class ParamIn(BaseModel):
     id: str
     value: str | None = None  # None = auf Standard zurücksetzen
@@ -124,6 +142,7 @@ class ParamIn(BaseModel):
 def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
     path = Path(project_path)
     state = EditorState(path, Project.load(path))
+    state.ops = Editor(state.project)
     if preload:
         # Produktdaten vorab einlesen (einige Sekunden) – sonst wartet die erste Anfrage darauf
         _ = state.catalog
@@ -133,6 +152,8 @@ def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
     def project_info():
         p = state.project
         return {"name": p.name, "file": path.name, "project_id": p.project_id, "dirty": state.dirty,
+                "undo": state.ops.undo_stack[-1][0] if state.ops.undo_stack else None,
+                "redo": state.ops.redo_stack[-1][0] if state.ops.redo_stack else None,
                 "devices": len(p.devices),
                 "group_addresses": len(p.group_addresses), "links": sum(len(l.gas) for d in p.devices for l in d.links)}
 
@@ -146,10 +167,11 @@ def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
             devices = [d for d in p.devices if (d.area, d.line) == (ln.area, ln.line)]
             area["children"].append({
                 "key": f"l{ln.area}.{ln.line}", "label": f"{ln.area}.{ln.line} {ln.name or 'Linie'}",
-                "icon": "pi pi-share-alt", "data": {"type": "line", "medium": MEDIUM.get(ln.medium, ln.medium)},
+                "icon": "pi pi-share-alt", "data": {"type": "line", "medium": MEDIUM.get(ln.medium, ln.medium),
+                                                   "area": ln.area, "line": ln.line},
                 "children": [{
                     "key": d.uid, "label": f"{d.pa or '–'} {d.name or state.product_name(d)}",
-                    "icon": "pi pi-box", "leaf": True, "data": {"type": "device", "uid": d.uid},
+                    "icon": "pi pi-box", "leaf": False, "data": {"type": "device", "uid": d.uid, "pa": d.pa},
                 } for d in sorted(devices, key=lambda d: (d.address is None, d.address or 0))],
             })
         return list(areas.values())
@@ -180,18 +202,33 @@ def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
     @app.get("/api/tree/groupaddresses")
     def group_addresses():
         p = state.project
+        linked_count: dict[str, int] = {}
+        for d in p.devices:
+            for link in d.links:
+                for g in link.gas:
+                    linked_count[g] = linked_count.get(g, 0) + 1
         children: dict[str | None, list] = {}
         for r in p.ranges:
+            level = "middle" if r.parent else "main"
+            prefix = f"{r.end >> 11}/{(r.end >> 8) & 7}" if r.parent else f"{r.end >> 11}"
             children.setdefault(r.parent, []).append(
-                {"key": r.uid, "label": r.name, "icon": "pi pi-folder", "data": {"type": "range"}, "children": []})
+                {"key": r.uid, "label": f"{prefix} {r.name}", "icon": "pi pi-folder",
+                 "data": {"type": "range", "level": level, "uid": r.uid, "name": r.name}, "children": []})
         for g in p.group_addresses.values():
             children.setdefault(g.range_uid, []).append({
                 "key": f"ga:{g.address}", "label": f"{g.address} {g.name}", "icon": "pi pi-link", "leaf": True,
-                "data": {"type": "ga", "address": g.address, "dpt": g.dpt}})
+                "data": {"type": "ga", "address": g.address, "dpt": g.dpt, "name": g.name,
+                         "linked": linked_count.get(g.address, 0)}})
+
+        def sort_key(n):
+            # Anzeige wie in der ETS nach Adresse; die Reihenfolge im Projekt bleibt unverändert
+            if n["data"]["type"] == "range":
+                return (0, next(r.start for r in p.ranges if r.uid == n["key"]))
+            return (1, GroupAddressRaw(n["data"]["address"]))
 
         def build(parent):
             out = []
-            for n in children.get(parent, []):
+            for n in sorted(children.get(parent, []), key=sort_key):
                 if n["data"]["type"] == "range":
                     n["children"] = build(n["key"])
                 out.append(n)
@@ -210,11 +247,52 @@ def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
         if app_ is None:
             raise HTTPException(400, "Ohne Produktdaten nicht bearbeitbar")
         try:
-            if set_param(state.app_params(app_), d, body.id, body.value):
-                state.dirty = True
+            state.ops.run("Parameter ändern", lambda: set_param(state.app_params(app_), d, body.id, body.value))
         except EditError as e:
             raise HTTPException(422, str(e)) from None
-        return device_detail(state, d)
+        state.dirty = True
+        return device_detail(state, state.device(uid))
+
+    @app.post("/api/op")
+    def op(body: OpIn):
+        fn = OPS.get(body.op)
+        if fn is None:
+            raise HTTPException(400, f"Unbekannter Befehl: {body.op}")
+        try:
+            result = fn(state.ops, **body.args)
+        except OpError as e:
+            raise HTTPException(422, str(e)) from None
+        except TypeError as e:
+            raise HTTPException(400, f"Falsche Argumente: {e}") from None
+        state.dirty = True
+        return {"result": result, "undo": state.ops.undo_stack[-1][0] if state.ops.undo_stack else None}
+
+    @app.post("/api/undo")
+    def undo():
+        try:
+            name = state.ops.undo()
+        except OpError as e:
+            raise HTTPException(422, str(e)) from None
+        state.dirty = True
+        return {"undone": name}
+
+    @app.post("/api/redo")
+    def redo():
+        try:
+            name = state.ops.redo()
+        except OpError as e:
+            raise HTTPException(422, str(e)) from None
+        state.dirty = True
+        return {"redone": name}
+
+    @app.get("/api/catalog")
+    def catalog_list():
+        out = []
+        for app_ in state.catalog.apps.values():
+            for (pid, h2p), (name, order) in zip(app_.product_refs, app_.products):
+                out.append({"product_ref": pid, "h2p_ref": h2p, "app_id": app_.full_id, "name": name,
+                            "order": order, "manufacturer": app_.key[:6], "application": app_.name})
+        return sorted(out, key=lambda x: (x["manufacturer"], x["name"]))
 
     @app.post("/api/project/save")
     def save():
@@ -235,7 +313,7 @@ def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
                     app = state.app(d)
                     key = _catalog_key(app, link.ref) if app else None
                     v = app.variant_by_ref.get(key) if app and key else None
-                    users.append({"uid": d.uid, "pa": d.pa, "device": d.name or state.product_name(d),
+                    users.append({"uid": d.uid, "pa": d.pa, "device": d.name or state.product_name(d), "ref": link.ref,
                                   "number": app.ref_number.get(key) if app and key else None,
                                   "object": " – ".join(x for x in (v.text, v.function) if x) if v else link.ref,
                                   "sending": link.gas[0] == address})

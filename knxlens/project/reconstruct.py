@@ -117,6 +117,11 @@ def co_ref(app: Application, ev: Evaluation | None, number: int) -> str | None:
         if not keys:
             return None
         key = keys[0]
+    return rel_ref(app, key)
+
+
+def rel_ref(app: Application, key: str) -> str:
+    """Katalog-Schlüssel ("Instanz|Ref" bzw. "Ref") → relative Ref-Id wie im Projekt."""
     instance, _, ref = key.rpartition("|")
     prefix = app.full_id + "_"
     rel = ref.removeprefix(prefix)

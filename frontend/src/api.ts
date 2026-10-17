@@ -5,7 +5,20 @@ export interface TreeNode {
   label: string
   icon?: string
   leaf?: boolean
-  data: { type: string; uid?: string; address?: string; dpt?: string; medium?: string }
+  data: {
+    type: string
+    uid?: string
+    pa?: string | null
+    address?: string
+    dpt?: string
+    name?: string
+    linked?: number
+    medium?: string
+    area?: number
+    line?: number
+    level?: 'main' | 'middle'
+    space_type?: string
+  }
   children?: TreeNode[]
 }
 
@@ -14,12 +27,15 @@ export interface ProjectInfo {
   file: string
   project_id: string
   dirty: boolean
+  undo: string | null
+  redo: string | null
   devices: number
   group_addresses: number
   links: number
 }
 
 export interface DeviceObject {
+  ref: string
   number: number
   text: string
   function: string
@@ -66,7 +82,7 @@ export interface GaDetail {
   dpt: string
   description: string
   central: boolean
-  users: { uid: string; pa: string | null; device: string; number: number | null; object: string; sending: boolean }[]
+  users: { uid: string; pa: string | null; device: string; ref: string; number: number | null; object: string; sending: boolean }[]
 }
 
 export class ApiError extends Error {}
@@ -96,4 +112,19 @@ export const api = {
   setParam: (uid: string, id: string, value: string | null) =>
     send<DeviceDetail>('PUT', `/api/device/${encodeURIComponent(uid)}/param`, { id, value }),
   save: () => send<{ saved: string }>('POST', '/api/project/save'),
+  op: <T = unknown>(op: string, args: Record<string, unknown>) =>
+    send<{ result: T; undo: string | null }>('POST', '/api/op', { op, args }),
+  undo: () => send<{ undone: string }>('POST', '/api/undo'),
+  redo: () => send<{ redone: string }>('POST', '/api/redo'),
+  catalog: () => get<CatalogItem[]>('/api/catalog'),
+}
+
+export interface CatalogItem {
+  product_ref: string
+  h2p_ref: string
+  app_id: string
+  name: string
+  order: string
+  manufacturer: string
+  application: string
 }

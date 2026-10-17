@@ -97,7 +97,16 @@ irgendetwas geschrieben wird.
   aus), Warnung bei verknüpften, aber inaktiven Objekten, Speichern mit ⌘S.
   **Kodierung = Umkehr der Dekodierung: 5298/5298 Parameter der 40 Geräte ergeben exakt die
   gelesenen Bytes** (Grundlage für E3).
-- E2.3 Verknüpfen per Drag & Drop, GAs/Geräte/Räume anlegen, E2.4 Rückgängig/Suche/Tastatur.
+- **E2.3 ✅ (Umbau nach Rückmeldung)** neue Bedienung, ETS-Begriffe mit modernen Werkzeugen:
+  zwei gleichwertige Arbeitsbereiche (je Gruppenadressen/Topologie/Gebäude/Katalog), Inspector,
+  großer Parameterdialog, eigener Baum (Mehrfachauswahl, Tastatur, Ziehen & Ablegen über beide
+  Bereiche, Kontextmenü, F2), Befehlspalette ⌘K, Rückgängig/Wiederholen für jede Änderung.
+  Kernbefehle (`project/ops.py`, getestet): Haupt-/Mittelgruppen und GAs anlegen/umbenennen/
+  löschen, GA-Adresse ändern, GAs verschieben (Verknüpfungen wandern mit) und kopieren,
+  verknüpfen/lösen/sendende GA, Geräte einfügen (Katalog), kopieren inkl. Parameter, PA ändern,
+  auf andere Linie verschieben, löschen.
+- Offen: Gebäude bearbeiten, Linien/Bereiche anlegen, neue `.knxprod` ins Projekt laden,
+  Mehrfach-Umnummerieren, Geräte-Parameter mehrerer Geräte gleichzeitig.
 - Offen aus E2.2: `Assign`-Regeln der Produktdaten (versteckte Folgewerte) werden noch nicht
   nachgeführt – wichtig erst für das Download-Abbild (E3).
 

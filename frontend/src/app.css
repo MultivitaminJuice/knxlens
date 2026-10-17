@@ -1,12 +1,20 @@
 :root {
-  --kl-border: #e5e5e3;
+  --kl-border: #e4e4e2;
   --kl-muted: #6b6b66;
   --kl-bg: #ffffff;
+  --kl-chrome: #f7f7f6;
   --kl-text: #1d1d1b;
+  --kl-hover: #f1f1ef;
+  --kl-sel: #e3ecfb;
+  --kl-accent: #2563eb;
+  --kl-accent-soft: #dbe7fd;
   --kl-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --kl-border: #333330; --kl-muted: #9a9993; --kl-bg: #18181c; --kl-text: #e8e7e3; }
+  :root {
+    --kl-border: #303034; --kl-muted: #9a9993; --kl-bg: #18181c; --kl-chrome: #1f1f23; --kl-text: #e8e7e3;
+    --kl-hover: #26262b; --kl-sel: #1e3157; --kl-accent: #4f8cf6; --kl-accent-soft: #1c2b48;
+  }
 }
 html, body, #app { height: 100%; margin: 0; }
 body {
@@ -14,6 +22,7 @@ body {
   font-size: 14px;
   background: var(--kl-bg);
   color: var(--kl-text);
+  -webkit-font-smoothing: antialiased;
 }
-.mono { font-family: var(--kl-mono); font-size: 13px; }
+.mono { font-family: var(--kl-mono); font-size: 12.5px; }
 .muted { color: var(--kl-muted); }

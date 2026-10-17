@@ -23,7 +23,7 @@ def test_project_and_trees(client):
     devices = topo[0]["children"][0]["children"]
     assert [d["label"] for d in devices] == ["1.1.5 Taster Flur", "– noch ohne Adresse"]
     gas = client.get("/api/tree/groupaddresses").json()
-    assert gas[0]["label"] == "Licht" and gas[0]["children"][0]["children"][0]["data"]["address"] == "1/1/2"
+    assert gas[0]["label"] == "1 Licht" and gas[0]["children"][0]["children"][0]["data"]["address"] == "1/1/1"  # nach Adresse sortiert
     rooms = client.get("/api/tree/buildings").json()
     assert rooms[0]["label"] == "Haus" and rooms[0]["children"][0]["label"] == "Flur"
 
@@ -40,7 +40,7 @@ def test_device_detail(client):
 def test_ga_detail(client):
     g = client.get("/api/ga/1/1/1").json()
     assert g["name"] == "Flur 1" and g["central"]
-    assert g["users"] == [{"uid": "P-0123-0_DI-1", "pa": "1.1.5", "device": "Taster Flur", "number": 0,
+    assert g["users"] == [{"uid": "P-0123-0_DI-1", "pa": "1.1.5", "device": "Taster Flur", "ref": "O-0_R-1", "number": 0,
                            "object": "Taste 1 – Schalten", "sending": False}]
     assert client.get("/api/ga/1/1/2").json()["users"][0]["sending"] is True
 
