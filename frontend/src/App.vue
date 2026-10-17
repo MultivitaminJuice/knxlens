@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { NConfigProvider, NSplit, darkTheme, useOsTheme } from 'naive-ui'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { NButton, NConfigProvider, NMessageProvider, NSplit, darkTheme, useOsTheme } from 'naive-ui'
 import Navigator, { type Selection } from './components/Navigator.vue'
 import DeviceView from './components/DeviceView.vue'
 import ParamPanel from './components/ParamPanel.vue'
@@ -15,10 +15,49 @@ const device = ref<DeviceDetail | null>(null)
 const ga = ref<GaDetail | null>(null)
 const loading = ref(false)
 const error = ref('')
+const dirty = ref(false)
+const saving = ref(false)
+
+function onUpdated(d: DeviceDetail) {
+  device.value = d
+  dirty.value = true
+}
+
+async function save() {
+  if (!dirty.value || saving.value) return
+  saving.value = true
+  try {
+    await api.save()
+    dirty.value = false
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+function onKey(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+    e.preventDefault()
+    save()
+  }
+}
+function onLeave(e: BeforeUnloadEvent) {
+  if (dirty.value) e.preventDefault() // ungespeicherte Änderungen: Browser fragt nach
+}
+onMounted(() => {
+  window.addEventListener('keydown', onKey)
+  window.addEventListener('beforeunload', onLeave)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  window.removeEventListener('beforeunload', onLeave)
+})
 
 onMounted(async () => {
   try {
     project.value = await api.project()
+    dirty.value = project.value.dirty
     document.title = `${project.value.name} · knxlens`
   } catch (e) {
     error.value = String(e)
@@ -45,6 +84,7 @@ async function select(sel: Selection) {
 
 <template>
   <NConfigProvider :theme="theme" class="app">
+   <NMessageProvider>
     <header class="bar">
       <strong>knxlens</strong>
       <span v-if="project" class="muted">
@@ -53,6 +93,9 @@ async function select(sel: Selection) {
       <span class="spacer" />
       <span v-if="loading" class="muted">lädt …</span>
       <span v-if="error" class="error">{{ error }}</span>
+      <span v-if="dirty" class="muted">ungespeicherte Änderungen</span>
+      <NButton size="small" :type="dirty ? 'primary' : 'default'" :disabled="!dirty" :loading="saving" @click="save"
+               title="Speichern (⌘S / Strg+S)">Speichern</NButton>
     </header>
     <NSplit class="main" direction="horizontal" :default-size="0.28" :min="0.15" :max="0.5">
       <template #1><Navigator @select="select" /></template>
@@ -64,12 +107,13 @@ async function select(sel: Selection) {
             <p v-else class="empty muted">Gerät oder Gruppenadresse im Navigator wählen.</p>
           </template>
           <template #2>
-            <ParamPanel v-if="device" :device="device" />
+            <ParamPanel v-if="device" :device="device" @updated="onUpdated" />
             <p v-else class="empty muted">Parameter des gewählten Geräts erscheinen hier.</p>
           </template>
         </NSplit>
       </template>
     </NSplit>
+   </NMessageProvider>
   </NConfigProvider>
 </template>
 

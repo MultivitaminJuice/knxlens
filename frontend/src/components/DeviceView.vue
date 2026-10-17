@@ -12,7 +12,15 @@ const columns: DataTableColumns<DeviceObject> = [
   { title: 'Nr.', key: 'number', width: 56 },
   {
     title: 'Objekt', key: 'text', minWidth: 160,
-    render: (o) => [o.text, o.function ? h('span', { class: 'muted' }, ` – ${o.function}`) : null],
+    render: (o) => [
+      o.text,
+      o.function ? h('span', { class: 'muted' }, ` – ${o.function}`) : null,
+      !o.active && o.gas.length
+        ? h(NTag, { size: 'tiny', type: 'error', class: 'orphan',
+            title: 'Objekt ist laut Parametern nicht aktiv – die Verknüpfung hat keine Wirkung und ginge beim Download verloren' },
+            () => 'inaktiv')
+        : null,
+    ],
   },
   {
     title: 'Gruppenadressen', key: 'gas', minWidth: 200,
@@ -49,6 +57,7 @@ h2 { margin: 0; font-size: 17px; }
 header p { margin: 4px 0 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .objects { flex: 1; min-height: 0; padding: 0 8px 8px; }
 .objects :deep(.unlinked td) { color: var(--kl-muted); }
+.objects :deep(.orphan) { margin-left: 6px; }
 .objects :deep(.ga) { display: block; cursor: pointer; }
 .objects :deep(.ga:hover .mono) { text-decoration: underline; }
 .pad { padding: 0 16px; }

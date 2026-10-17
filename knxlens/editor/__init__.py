@@ -10,12 +10,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import params
 from ..catalog import Application, Catalog
 from ..project import Device, Project
+from ..project.edit import EditError, editor_item, set_param
 from ..project.products import app_for, project_catalog
 
 STATIC = Path(__file__).parent.parent / "web" / "static" / "editor"
@@ -26,6 +28,7 @@ MEDIUM = {"MT-0": "TP", "MT-5": "IP", "MT-1": "PL", "MT-2": "RF"}
 class EditorState:
     path: Path
     project: Project
+    dirty: bool = False
     _catalog: Catalog | None = None
     _app_params: dict[str, params.AppParams] = field(default_factory=dict)
 
@@ -103,27 +106,34 @@ def device_detail(state: EditorState, d: Device) -> dict:
         })
     out["objects"] = sorted(objects, key=lambda o: o["number"])
 
+    ap = state.app_params(app)
     groups: dict[tuple, list] = {}
     for v in ev.values:
         if v.internal:
             continue
-        groups.setdefault(v.path, []).append({
-            "id": v.instance_id, "text": v.text, "display": v.display, "changed": v.from_project and not v.is_default,
-            "from_project": v.from_project,
-        })
+        groups.setdefault(v.path, []).append(editor_item(ap, v))
     out["params"] = [{"path": list(path), "items": items} for path, items in groups.items()]
     return out
 
 
-def create_editor_app(project_path: str) -> FastAPI:
+class ParamIn(BaseModel):
+    id: str
+    value: str | None = None  # None = auf Standard zurücksetzen
+
+
+def create_editor_app(project_path: str, preload: bool = True) -> FastAPI:
     path = Path(project_path)
     state = EditorState(path, Project.load(path))
+    if preload:
+        # Produktdaten vorab einlesen (einige Sekunden) – sonst wartet die erste Anfrage darauf
+        _ = state.catalog
     app = FastAPI(title="knxlens Editor", docs_url=None, redoc_url=None)
 
     @app.get("/api/project")
     def project_info():
         p = state.project
-        return {"name": p.name, "file": path.name, "project_id": p.project_id, "devices": len(p.devices),
+        return {"name": p.name, "file": path.name, "project_id": p.project_id, "dirty": state.dirty,
+                "devices": len(p.devices),
                 "group_addresses": len(p.group_addresses), "links": sum(len(l.gas) for d in p.devices for l in d.links)}
 
     @app.get("/api/tree/topology")
@@ -192,6 +202,25 @@ def create_editor_app(project_path: str) -> FastAPI:
     @app.get("/api/device/{uid}")
     def device(uid: str):
         return device_detail(state, state.device(uid))
+
+    @app.put("/api/device/{uid}/param")
+    def put_param(uid: str, body: ParamIn):
+        d = state.device(uid)
+        app_ = state.app(d)
+        if app_ is None:
+            raise HTTPException(400, "Ohne Produktdaten nicht bearbeitbar")
+        try:
+            if set_param(state.app_params(app_), d, body.id, body.value):
+                state.dirty = True
+        except EditError as e:
+            raise HTTPException(422, str(e)) from None
+        return device_detail(state, d)
+
+    @app.post("/api/project/save")
+    def save():
+        state.project.save(state.path)
+        state.dirty = False
+        return {"saved": str(state.path.name)}
 
     @app.get("/api/ga/{main}/{middle}/{sub}")
     def ga(main: int, middle: int, sub: int):

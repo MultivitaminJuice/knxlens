@@ -46,8 +46,11 @@ class PType:
     bits: int
     signed: bool = False
     encoding: str = ""
-    enums: dict[int, str] = field(default_factory=dict)
+    enums: dict[int, str] = field(default_factory=dict)  # in Anzeigereihenfolge
     unit: str = ""
+    minv: float | None = None
+    maxv: float | None = None
+    ui: str = ""  # UIHint, z. B. CheckBox, Duration_hhmmss
 
 
 @dataclass
@@ -168,21 +171,27 @@ class AppParams:
                 continue
             kind = _local(t.tag)
             bits = int(t.get("SizeInBit", "0"))
+            ui = t.get("UIHint", "")
+            lo = float(t.get("minInclusive")) if t.get("minInclusive") is not None else None
+            hi = float(t.get("maxInclusive")) if t.get("maxInclusive") is not None else None
             if kind == "TypeRestriction":
-                enums = {}
+                items = []
                 for e in t:
                     if _local(e.tag) == "Enumeration" and e.get("Value") is not None:
-                        enums[int(e.get("Value"))] = self._t(e.get("Id", ""), e.attrib, "Text")
-                out[pt.get("Id")] = PType("enum", bits, enums=enums)
+                        order = int(e.get("DisplayOrder", len(items)))
+                        items.append((order, int(e.get("Value")), self._t(e.get("Id", ""), e.attrib, "Text")))
+                enums = {v: text for _, v, text in sorted(items, key=lambda x: x[0])}
+                out[pt.get("Id")] = PType("enum", bits, enums=enums, ui=ui)
             elif kind == "TypeNumber":
-                out[pt.get("Id")] = PType("number", bits, signed=t.get("Type") == "signedInt")
+                out[pt.get("Id")] = PType("number", bits, signed=t.get("Type") == "signedInt", minv=lo, maxv=hi, ui=ui)
             elif kind == "TypeFloat":
                 enc = t.get("Encoding", "")
-                out[pt.get("Id")] = PType("float", 16 if enc == "DPT 9" else 32, encoding=enc)
+                out[pt.get("Id")] = PType("float", 16 if enc == "DPT 9" else 32, encoding=enc, minv=lo, maxv=hi)
             elif kind == "TypeText":
                 out[pt.get("Id")] = PType("text", bits)
             elif kind == "TypeTime":
-                out[pt.get("Id")] = PType("time", bits, signed=t.get("Type") == "signedInt", unit=t.get("Unit", ""))
+                out[pt.get("Id")] = PType("time", bits, signed=t.get("Type") == "signedInt", unit=t.get("Unit", ""),
+                                          minv=lo, maxv=hi, ui=ui)
             elif kind == "TypeColor":
                 out[pt.get("Id")] = PType("color", 24)
             else:
@@ -586,11 +595,93 @@ def decode_value(t: PType, raw, suffix: str = "") -> tuple[object, str]:
             value = round(struct.unpack(">f", raw.to_bytes(4, "big"))[0], 4)
         return value, f"{value}{unit}"
     if t.kind == "text":
-        s = raw.split(b"\x00", 1)[0].decode("latin-1").strip()
+        # bis zum Nullbyte, Leerzeichen bleiben erhalten (gehören zum Wert)
+        s = raw.split(b"\x00", 1)[0].decode("latin-1")
         return s, s
     if t.kind == "color":
         return raw.hex(), "#" + raw.hex()
     return raw, str(raw)
+
+
+def encode_value(t: PType, value: object) -> int | bytes:
+    """Umkehrung von decode_value: Wert → Rohwert wie read_raw ihn liefert (int bzw. bytes)."""
+    if t.kind in ("enum", "number"):
+        v = int(value)
+        return v & ((1 << t.bits) - 1)  # vorzeichenbehaftet: Zweierkomplement
+    if t.kind == "time":
+        v = int(value)
+        if t.unit == "PackedDaysHoursMinutesAndSeconds":
+            days, rest = divmod(v, 86400)
+            h, rest = divmod(rest, 3600)
+            m, sec = divmod(rest, 60)
+            parts = [sec, m, h] + ([days] if t.bits > 24 else [])
+            return int.from_bytes(bytes(parts), "big")
+        return v & ((1 << t.bits) - 1)
+    if t.kind == "float":
+        v = float(value)
+        if t.encoding == "DPT 9":
+            return _encode_dpt9(v)
+        return int.from_bytes(struct.pack(">f", v), "big")
+    if t.kind == "text":
+        n = t.bits // 8
+        data = str(value).encode("latin-1", errors="replace")[:n]
+        return data + b"\x00" * (n - len(data))
+    if t.kind == "color":
+        return bytes.fromhex(str(value).lstrip("#"))
+    raise ValueError(f"Typ {t.kind} nicht kodierbar")
+
+
+def _encode_dpt9(v: float) -> int:
+    """2-Byte-Gleitkomma (KNX DPT 9): M·0,01·2^E, Mantisse 12 Bit Zweierkomplement."""
+    mant = round(v * 100)
+    exp = 0
+    while not -2048 <= mant <= 2047:
+        exp += 1
+        mant = round(v * 100 / (1 << exp))
+        if exp > 15:
+            raise ValueError("Wert außerhalb DPT 9")
+    sign = 0x8000 if mant < 0 else 0
+    return sign | (exp << 11) | (mant & 0x07FF)
+
+
+def validate(ref: PRef, text: str) -> tuple[object, str]:
+    """Eingabe prüfen → (Wert, Text für das Projekt). ValueError mit verständlicher Meldung."""
+    t = ref.param.ptype
+    text = str(text).strip()
+    if ref.access in ("None", "Read"):
+        raise ValueError("Parameter ist nicht änderbar")
+    if t.kind == "enum":
+        v = int(float(text))
+        if v not in t.enums:
+            raise ValueError(f"Kein gültiger Wert: {text}")
+        return v, str(v)
+    if t.kind in ("number", "time"):
+        try:
+            v = int(float(text))
+        except ValueError:
+            raise ValueError("Ganze Zahl erwartet") from None
+        lo = t.minv if t.minv is not None else (-(1 << (t.bits - 1)) if t.signed else 0)
+        hi = t.maxv if t.maxv is not None else ((1 << (t.bits - 1)) - 1 if t.signed else (1 << t.bits) - 1)
+        if not lo <= v <= hi:
+            raise ValueError(f"Erlaubt: {lo:g} … {hi:g}")
+        return v, str(v)
+    if t.kind == "float":
+        try:
+            v = float(text.replace(",", "."))
+        except ValueError:
+            raise ValueError("Zahl erwartet") from None
+        if (t.minv is not None and v < t.minv) or (t.maxv is not None and v > t.maxv):
+            raise ValueError(f"Erlaubt: {t.minv:g} … {t.maxv:g}")
+        return v, repr(v)
+    if t.kind == "text":
+        if len(text.encode("latin-1", errors="replace")) > t.bits // 8:
+            raise ValueError(f"Höchstens {t.bits // 8} Zeichen")
+        return text, text
+    if t.kind == "color":
+        if not re.fullmatch(r"#?[0-9a-fA-F]{6}", text):
+            raise ValueError("Farbe als #RRGGBB")
+        return text.lstrip("#").upper(), text.lstrip("#").upper()
+    raise ValueError("Parametertyp nicht bearbeitbar")
 
 
 def parse_value(ref: PRef, text: str) -> tuple[object, str]:

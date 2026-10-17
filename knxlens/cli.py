@@ -142,8 +142,10 @@ def cmd_edit(args: argparse.Namespace) -> None:
         raise SystemExit("Editor-Oberfläche nicht gebaut: cd frontend && npm install && npm run build")
     if args.host not in ("127.0.0.1", "localhost"):
         print(f"Achtung: Editor ohne Anmeldung unter {args.host}:{args.port} erreichbar.")
-    print(f"Editor: http://{args.host}:{args.port}  ({args.project})")
-    uvicorn.run(create_editor_app(args.project), host=args.host, port=args.port, log_level="warning")
+    print(f"Projekt {args.project}: Produktdaten werden geladen …", flush=True)
+    app = create_editor_app(args.project)
+    print(f"Editor: http://{args.host}:{args.port}", flush=True)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 
 def cmd_serve(args: argparse.Namespace) -> None:

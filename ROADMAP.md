@@ -91,8 +91,15 @@ irgendetwas geschrieben wird.
   Filter), Geräteansicht (aktive Objekte, Verknüpfungen, DPT, Flags), GA-Ansicht (Nutzer,
   sendende GA), Parameter nach ETS-Seiten – Werte aus dem Projekt, Sichtbarkeit vom Kern
   berechnet. Noch nur lesend.
-- E2.2 Parameter bearbeiten (Kodierung, Live-Sichtbarkeit), E2.3 Verknüpfen per Drag & Drop,
-  GAs/Geräte/Räume anlegen, E2.4 Rückgängig/Suche/Tastatur.
+- **E2.2 ✅** Parameter bearbeiten: Eingabefelder je Typ (Auswahl, Schalter, Zahl/Zeit/Gleitkomma
+  mit Grenzen aus den Produktdaten, Text), Prüfung im Kern, Speichern wie die ETS (nur Abweichungen
+  vom Standard), Zurücksetzen, Live-Sichtbarkeit (z. B. Kanal deaktivieren blendet dessen Seiten
+  aus), Warnung bei verknüpften, aber inaktiven Objekten, Speichern mit ⌘S.
+  **Kodierung = Umkehr der Dekodierung: 5298/5298 Parameter der 40 Geräte ergeben exakt die
+  gelesenen Bytes** (Grundlage für E3).
+- E2.3 Verknüpfen per Drag & Drop, GAs/Geräte/Räume anlegen, E2.4 Rückgängig/Suche/Tastatur.
+- Offen aus E2.2: `Assign`-Regeln der Produktdaten (versteckte Folgewerte) werden noch nicht
+  nachgeführt – wichtig erst für das Download-Abbild (E3).
 
 ## Offene Punkte
 

@@ -43,3 +43,12 @@ def test_ga_detail(client):
     assert g["users"] == [{"uid": "P-0123-0_DI-1", "pa": "1.1.5", "device": "Taster Flur", "number": 0,
                            "object": "Taste 1 – Schalten", "sending": False}]
     assert client.get("/api/ga/1/1/2").json()["users"][0]["sending"] is True
+
+
+def test_edit_and_save(client, tmp_path):
+    d = client.get("/api/device/P-0123-0_DI-1").json()
+    assert d["params"] == [] or all(not i["changed"] for g in d["params"] for i in g["items"])
+    r = client.put("/api/device/P-0123-0_DI-1/param", json={"id": "gibtsnicht", "value": "1"})
+    assert r.status_code == 422 and "nicht sichtbar" in r.json()["detail"]
+    assert client.get("/api/project").json()["dirty"] is False
+    assert client.post("/api/project/save").json() == {"saved": "p.knxlens"}

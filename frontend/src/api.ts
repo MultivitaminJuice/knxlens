@@ -13,6 +13,7 @@ export interface ProjectInfo {
   name: string
   file: string
   project_id: string
+  dirty: boolean
   devices: number
   group_addresses: number
   links: number
@@ -33,8 +34,17 @@ export interface ParamItem {
   id: string
   text: string
   display: string
+  value: number | string | null
+  default: string
   changed: boolean
-  from_project: boolean
+  kind: 'enum' | 'number' | 'time' | 'float' | 'text' | 'color' | 'none'
+  editable: boolean
+  suffix: string
+  options?: { value: number; label: string }[]
+  checkbox?: boolean
+  min?: number | null
+  max?: number | null
+  maxlength?: number
 }
 
 export interface DeviceDetail {
@@ -59,15 +69,31 @@ export interface GaDetail {
   users: { uid: string; pa: string | null; device: string; number: number | null; object: string; sending: boolean }[]
 }
 
-async function get<T>(url: string): Promise<T> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+export class ApiError extends Error {}
+
+async function call<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init)
+  if (!res.ok) {
+    let msg = `${res.status}`
+    try {
+      msg = (await res.json()).detail ?? msg
+    } catch {
+      /* keine JSON-Antwort */
+    }
+    throw new ApiError(msg)
+  }
   return res.json() as Promise<T>
 }
+const get = <T>(url: string) => call<T>(url)
+const send = <T>(method: string, url: string, body?: unknown) =>
+  call<T>(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) })
 
 export const api = {
   project: () => get<ProjectInfo>('/api/project'),
   tree: (kind: 'topology' | 'buildings' | 'groupaddresses') => get<TreeNode[]>(`/api/tree/${kind}`),
   device: (uid: string) => get<DeviceDetail>(`/api/device/${encodeURIComponent(uid)}`),
   ga: (address: string) => get<GaDetail>(`/api/ga/${address}`),
+  setParam: (uid: string, id: string, value: string | null) =>
+    send<DeviceDetail>('PUT', `/api/device/${encodeURIComponent(uid)}/param`, { id, value }),
+  save: () => send<{ saved: string }>('POST', '/api/project/save'),
 }
