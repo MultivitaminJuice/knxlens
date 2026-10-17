@@ -58,3 +58,37 @@ def test_tables_system_b_and_missing_numbers():
     assert t.address_bytes[:2] == b"\x00\x03" and len(t.address_bytes) == 2 + 3 * 2  # ohne PA
     assert t.association_bytes[:6] == b"\x00\x05\x00\x02\x00\x00"
     assert tables(d, 0x07B0).problems == ["Objekt O-3_R-2: Nummer unbekannt"]
+
+
+def _gated_app(tmp_path, with_assign: bool):
+    """Schalter P-6 (ohne Speicher) ist nur bei Betriebsart 1 sichtbar; bei 0 setzt ihn ein Assign."""
+    import test_params
+    assign = f'<choose ParamRefId="{APP}_P-1_R-1"><when test="0"><Assign TargetParamRefRef="{APP}_P-6_R-6" Value="1"/></when></choose>' if with_assign else ""
+    dyn = f"""<Dynamic><ChannelIndependentBlock><ParameterBlock Id="{APP}_PB-1" Text="A">
+      <ParameterRefRef RefId="{APP}_P-1_R-1"/>
+      <choose ParamRefId="{APP}_P-1_R-1"><when test="1"><ParameterRefRef RefId="{APP}_P-6_R-6"/></when></choose>
+      <choose ParamRefId="{APP}_P-6_R-6"><when test="0"><ParameterRefRef RefId="{APP}_P-2_R-2"/></when>
+        <when test="1"><ParameterRefRef RefId="{APP}_P-3_R-3"/></when></choose>
+      {assign}
+    </ParameterBlock></ChannelIndependentBlock></Dynamic>"""
+    start, end = test_params.XML.index("<Dynamic>"), test_params.XML.index("</Dynamic>") + len("</Dynamic>")
+    old = test_params.XML
+    test_params.XML = old[:start] + dyn + old[end:]
+    try:
+        return setup(tmp_path, {})[0]
+    finally:
+        test_params.XML = old
+
+
+def test_choose_needs_visible_switch(tmp_path):
+    ap = _gated_app(tmp_path / "a", with_assign=False)
+    img = param_image(ap, {f"{APP}_P-1_R-1": "1"})  # Schalter sichtbar, Standard 0 → P-2
+    assert img.segments[SEG][2:4] == (60).to_bytes(2, "big") and not img.defined(SEG, 4, ap)
+    img = param_image(ap, {f"{APP}_P-1_R-1": "0"})  # Schalter unsichtbar → kein Zweig gilt
+    assert img.segments[SEG][2:4] == b"\x01\x2c" and not img.defined(SEG, 4, ap)
+
+
+def test_assign_sets_hidden_switch(tmp_path):
+    ap = _gated_app(tmp_path / "b", with_assign=True)
+    img = param_image(ap, {f"{APP}_P-1_R-1": "0"})  # Assign setzt den Schalter auf 1 → P-3
+    assert img.segments[SEG][2:4] == b"\x01\x2c" and img.defined(SEG, 4, ap)

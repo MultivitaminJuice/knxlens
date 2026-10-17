@@ -149,6 +149,9 @@ class AppParams:
         }
         self.dynamic = next((d for d in self.prog if _local(d.tag) == "Dynamic"), None)
         self.co_refs = self._co_refs()
+        # Parameter, die irgendwo im Dynamic-Teil angezeigt werden (auch in Moduldefinitionen)
+        self.shown_params = {self.refs[el.get("RefId")].param.id for el in self.prog.iter()
+                             if _local(el.tag) == "ParameterRefRef" and el.get("RefId") in self.refs}
         # Füllwert relativer Segmente aus der Ladeprozedur (LdCtrlRelSegment Fill), je Load State Machine
         self.rel_fill: dict[int, int] = {}
         for el in self.prog.iter():
@@ -266,10 +269,7 @@ class AppParams:
     def evaluate(self, mem: MemFn, prop: PropFn, rel_base: Callable[[int], int | None],
                  linked: set[int] | None = None) -> Evaluation:
         """linked: Objektnummern mit GA-Verknüpfung am Bus – nur aktive Objekte lassen sich verknüpfen."""
-        ev = Evaluation(self, mem, prop, rel_base, linked or set())
-        if self.dynamic is not None:
-            ev.walk(self.dynamic, Context(), (), False)
-        return ev
+        return self._settle(lambda: Evaluation(self, mem, prop, rel_base, linked or set()))
 
     def evaluate_values(self, values: dict[str, str]) -> Evaluation:
         """Auswertung aus Projektwerten (Editor): values = {ParameterInstanceRef-Id: Wert}.
@@ -277,9 +277,27 @@ class AppParams:
         Fehlende Parameter haben ihren Standardwert. Kein Speicherzugriff, keine Ableitung.
         """
         keyed = {re.sub(r"_R-\d+$", "", k): v for k, v in values.items()}
-        ev = Evaluation(self, lambda a, n: None, lambda o, p: None, lambda l: None, set(), keyed)
-        if self.dynamic is not None:
-            ev.walk(self.dynamic, Context(), (), False)
+        return self._settle(lambda: Evaluation(self, lambda a, n: None, lambda o, p: None, lambda l: None, set(), keyed))
+
+    def _settle(self, make: Callable[[], Evaluation]) -> Evaluation:
+        """Auswerten, bis die sichtbaren Parameter feststehen.
+
+        Ein choose gilt nur, wenn sein Parameter selbst sichtbar ist – über irgendeine seiner Refs,
+        sofern er überhaupt irgendwo angezeigt wird. Ob er sichtbar ist, entscheidet sich mitunter erst weiter unten im Baum –
+        daher mehrere Durchläufe, bis sich nichts mehr ändert. Ein Assign im aktiven Teil macht
+        seinen Zielparameter sichtbar und gibt ihm den zugewiesenen Wert (MDT-Taster 1.1.112:
+        bei horizontaler Tastenorientierung setzt ein Assign den verdeckten Schalter „Tasten 1/2“). Belegt an den MDT-Tastern: die
+        LED-Schwellen hängen an einem unsichtbaren Schalter, die ETS schreibt sie nicht.
+        """
+        gate, assigned = None, {}
+        for _ in range(8):
+            ev = make()
+            ev.gate, ev.prev_assigned = gate, assigned
+            if self.dynamic is not None:
+                ev.walk(self.dynamic, Context(), (), False)
+            if ev.visible == gate and ev.assigned == assigned:
+                break
+            gate, assigned = ev.visible, ev.assigned
         return ev
 
     def module_args(self, instance_id: str) -> list[tuple[str, str]] | None:
@@ -330,6 +348,10 @@ class Evaluation:
         self.inferred: list[str] = []  # Bedingungen, deren ETS-only-Wert aus dem Speicher erschlossen wurde
         self.inferred_keys: list[tuple[str, str, str]] = []  # (Parameter-Schlüssel, gewählter test, Standard)
         self.modules: list[tuple[str, list[tuple[str, str]]]] = []  # aktive Modulinstanzen: (Id, [(Arg-RefId, Wert)])
+        self.visible: set[tuple[str, str | None]] = set()  # angezeigte Parameter (Parameter-Id, Modulinstanz)
+        self.gate: set[tuple[str, str | None]] | None = None  # sichtbare Parameter des vorigen Durchlaufs
+        self.assigned: dict[tuple[str, str | None], str] = {}  # Assign-Ziele: (Parameter-Id, Instanz) → Wert
+        self.prev_assigned: dict[tuple[str, str | None], str] = {}
         self.contexts: dict[str | None, Context] = {None: Context()}  # aktive Modulinstanzen mit Argumenten
         self.assigns: list[tuple[str, Context, str | None, str | None]] = []  # (Ziel-Ref, Kontext, Quell-Ref, fester Wert)
 
@@ -398,6 +420,13 @@ class Evaluation:
         if ctx.instance and ctx.module_def and ref_id.startswith(ctx.module_def + "_"):
             instance_id = f"{ctx.instance}_MI-1_{ref_id[len(ctx.module_def) + 1:]}"
         from_project = False
+        assigned = self.prev_assigned.get((ref.param.id, ctx.instance))
+        if assigned is not None and (self.project_values is not None or ref.param.loc is None):
+            value, display = parse_value(ref, assigned)
+            v = Value(ref_id, instance_id, path, _fill(ref.text, ctx.text), None, value, display, ref.default,
+                      False, False, not ref.text.strip() or ref.access in ("None", "Read"), False, False)
+            self._cache[key] = v
+            return v
         if self.project_values is not None:
             raw = None
             stored = self.project_values.get(re.sub(r"_R-\d+$", "", instance_id))
@@ -429,6 +458,8 @@ class Evaluation:
                 label = _fill(self.ap._t(child.get("Id", ""), child.attrib, "Text"), ctx.text)
                 self.walk(child, ctx, path + ((label,) if label else ()), uncertain)
             elif tag == "ParameterRefRef":
+                if child.get("RefId") in self.ap.refs:
+                    self.visible.add((self.ap.refs[child.get("RefId")].param.id, ctx.instance))
                 v = self.resolve(child.get("RefId"), ctx, path, uncertain)
                 if v is not None and v.param_key not in self._seen:
                     self._seen.add(v.param_key)
@@ -440,7 +471,11 @@ class Evaluation:
                     ref = child.get("RefId")
                     self.active_cos[number] = f"{ctx.instance}|{ref}" if ctx.instance else ref
             elif tag == "choose":
-                v = self.resolve(child.get("ParamRefId"), ctx, path, uncertain)
+                pid = child.get("ParamRefId")
+                param = self.ap.refs[pid].param.id if pid in self.ap.refs else None
+                if self.gate is not None and param in self.ap.shown_params and (param, ctx.instance) not in self.gate:
+                    continue  # Schalter selbst nicht sichtbar → kein Zweig gilt
+                v = self.resolve(pid, ctx, path, uncertain)
                 matched = False
                 whens = [w for w in child if _local(w.tag) == "when"]
                 if v is not None and not v.from_device and self.project_values is None:
@@ -478,7 +513,15 @@ class Evaluation:
                     self.walk(dyn, sub, path, uncertain)
             elif tag == "Assign":
                 # im aktiven Zweig: Zielparameter bekommt den Wert der Quelle bzw. einen festen Wert
-                self.assigns.append((child.get("TargetParamRefRef"), ctx, child.get("SourceParamRefRef"), child.get("Value")))
+                target, source, fixed = child.get("TargetParamRefRef"), child.get("SourceParamRefRef"), child.get("Value")
+                self.assigns.append((target, ctx, source, fixed))
+                tref = self.ap.refs.get(target)
+                if tref is not None:
+                    self.visible.add((tref.param.id, ctx.instance))
+                    sv = self.resolve(source, ctx, path, uncertain) if source else None
+                    value = (repr(sv.value) if isinstance(sv.value, float) else str(sv.value)) if sv is not None and sv.value is not None else fixed
+                    if value is not None:
+                        self.assigned[(tref.param.id, ctx.instance)] = value
             elif tag in ("Rename", "ParameterSeparator", "ParameterCalculations", "ParameterCalculation"):
                 continue
             else:

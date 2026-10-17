@@ -129,21 +129,25 @@ irgendetwas geschrieben wird.
 - **Adress- und Assoziationstabelle: 80/80 Tabellen der 40 Geräte byte-genau gleich.**
   Adressen aufsteigend (System 7 mit eigener PA vorn), Assoziationen erst je Objekt die
   sendende GA nach Objektnummer, dann die übrigen.
-- **Parameterspeicher: 33 696 Bytes gleich, 251 abweichend** (Projektwerte gegen Gerät).
-  Mit den aus dem Gerät gelesenen Speicherwerten statt der Projektwerte: 33 823 / 124 – der
-  Unterschied sind Stellen, an denen Projekt und Gerät auseinanderliegen (nicht neu programmiert).
+- **Parameterspeicher: 33 811 Bytes gleich, 136 abweichend** (Projektwerte gegen Gerät).
 - Gefundene Regeln (je durch Vergleich bestätigt bzw. widerlegt):
   - nicht änderbare Refs (Access None/Read) geben ihren Wert fest vor;
   - mehrere aktive Refs eines Parameters: die änderbare gilt, sonst die erste;
   - inaktive Parameter und inaktive Unions werden nicht geschrieben (DefaultUnionParameter nicht);
+  - ein choose gilt nur, wenn sein Schalter selbst sichtbar ist (über irgendeine Ref);
+  - ein Assign im aktiven Teil macht seinen Ziel-Schalter sichtbar und setzt dessen Wert – auch
+    für die weitere Verzweigung (beides zusammen: 251 → 136 Bytes; Leseseite ohne „unsicher“:
+    2 952 Parameter gleich, 8 abweichend, vorher 47 Scheinparameter);
   - relative Segmente: Füllwert aus `LdCtrlRelSegment Fill`, Bytes mit Parametern beginnen bei 0;
   - absolute Segmente ohne Standardbild: nur Parameterbytes werden geschrieben.
 - Erklärte Rest-Abweichungen: Flags, die das Gerät nach dem Download selbst ändert
   (Steinel `INIT_FlagAppSave`, Theben „Download:“, MDT „Teach-in value at loading“, Gira
-  „Downloaderkennung“, Theben/Elsner „$AA“); Projekt ≠ Gerät bei ETS-only-Schaltern (z. B. HCL bei
-  den MDT-Dimmern 1.1.239/249/254, „extra langer Tastendruck“ bei MDT-Tastern), Texte am
-  Glastaster 1.1.132, bekannte Dimmer-Auffälligkeit 1.1.22/1.1.24.
-- Offen in E3: Gerät 1.1.229 (53 Bytes ohne Erklärung, relatives Segment), Gruppenobjekttabelle
+  „Downloaderkennung“, Theben/Elsner „$AA“, MDT „Szenen überschreiben“); vermutlich Projekt
+  geändert, nicht übertragen: Texte/Symbole am Glastaster 1.1.132, „Senden EIN alle“ 1.1.83,
+  „Einschaltverhalten Tag“ 1.1.22/1.1.24, „extra langer Tastendruck“ 1.1.213/1.1.232 (Prüfung
+  in der ETS durch Dirk steht aus).
+- Offen in E3: Gerät 1.1.229 (73 Bytes ohne Erklärung, relatives Segment), PIR 1.1.231 (8),
+  je 1 Byte ohne Parameter bei den LED-Controllern 1.1.239/249/254, Gruppenobjekttabelle
   (System B), Property-Parameter, BCU1-Speicherkarte, `ParameterCalculation`, Ladeablauf
   (LdCtrl-Folge) als ausführbarer Plan für E4.
 
