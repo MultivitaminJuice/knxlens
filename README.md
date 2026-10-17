@@ -82,7 +82,8 @@ Kommentare, Parameter ohne Speicherort im Gerät. Die Oberfläche hilft beim Erg
   wird geschätzt und markiert.
 - KNX Secure wird nicht unterstützt.
 
-Konzept, Messungen und Entscheidungen: [KONZEPT.md](KONZEPT.md).
+Konzept, Messungen und Entscheidungen: [KONZEPT.md](KONZEPT.md). Weiterentwicklung zum
+plattformübergreifenden Inbetriebnahmewerkzeug: [ROADMAP.md](ROADMAP.md).
 
 ## Lizenz
 
