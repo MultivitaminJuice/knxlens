@@ -131,3 +131,22 @@ def test_object_table_system7():
     assert e0 == bytes([0x07, 0, 0x40 | 0x08 | 0x04 | 1, 0])  # aktiv, verknüpft, Priorität hoch, 1 Bit
     assert e1 == bytes([0x07, 1, 0x13, 0x07])  # inaktiv: Vorlage ohne Kommunikations-Bit
     assert e2[2] == 0x40 | 0x08 | 1  # aktiv, aber nicht verknüpft: ohne Kommunikations-Bit
+
+
+def test_loadplan_merges_mask_procedure():
+    from knxlens.loadplan import build, raw_steps
+    app = b"""<KNX xmlns="http://knx.org/xml/project/20"><ManufacturerData><Manufacturer><ApplicationPrograms>
+      <ApplicationProgram Id="A" MaskVersion="MV-07B0"><Static><LoadProcedures>
+        <LoadProcedure MergeId="2"><LdCtrlRelSegment AppliesTo="full" LsmIdx="4" Size="10" Mode="1" Fill="0"/>
+          <LdCtrlRelSegment AppliesTo="par" LsmIdx="4" Size="10" Mode="0" Fill="0"/></LoadProcedure>
+        <LoadProcedure MergeId="4"><LdCtrlWriteRelMem AppliesTo="full,par" ObjIdx="4" Offset="0" Size="10" Verify="true"/></LoadProcedure>
+      </LoadProcedures></Static></ApplicationProgram></ApplicationPrograms></Manufacturer></ManufacturerData></KNX>"""
+    master = b"""<KNX><MaskVersions><MaskVersion Id="MV-07B0"><Procedures>
+      <Procedure ProcedureType="Load" ProcedureSubType="all"><LdCtrlConnect/><LdCtrlLoad LsmIdx="4"/>
+        <LdCtrlMerge MergeId="2"/><LdCtrlMerge MergeId="4"/><LdCtrlLoadCompleted LsmIdx="4"/><LdCtrlRestart/></Procedure>
+    </Procedures></MaskVersion></MaskVersions></KNX>"""
+    steps = raw_steps(app, master, "MV-07B0", "all")
+    assert [s[0] for s in steps] == ["Connect", "Load", "RelSegment", "WriteRelMem", "LoadCompleted", "Restart"]
+    plan = build(steps, {}, {}, {4: b"\\x01" * 10})
+    write = next(s for s in plan if s.op == "WriteRelMem")
+    assert write.writes and write.data == b"\\x01" * 10 and "Parameter" in write.text

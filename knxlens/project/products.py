@@ -174,3 +174,14 @@ def product_texts(p: Project, lang: str = "de-DE") -> dict[str, str]:
             if el.tag.endswith("}Product") and el.get("Id"):
                 out[el.get("Id")] = tr.get(el.get("Id")) or el.get("Text", "")
     return out
+
+
+def manufacturer_names(p: Project) -> dict[str, str]:
+    """Hersteller-Id (M-0083) → Name aus knx_master.xml (MDT technologies …)."""
+    data = p.products.get("knx_master.xml")
+    if not data:
+        return {}
+    out = {}
+    for m in re.finditer(rb'<Manufacturer Id="(M-[0-9A-F]{4})"[^>]*?Name="([^"]*)"', data):
+        out[m[1].decode()] = m[2].decode("utf-8", "replace")
+    return out

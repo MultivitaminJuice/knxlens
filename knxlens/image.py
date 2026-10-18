@@ -49,9 +49,13 @@ class ParamImage:
     touched: set[tuple[str, int]] = field(default_factory=set)
 
     def defined(self, segment: str, offset: int, ap: AppParams) -> bool:
-        """Wird dieses Byte geschrieben? Absolute Segmente ohne Standardbild: nur Parameterbytes."""
+        """Wird dieses Byte geschrieben? Absolut: Standardbild und Parameterbytes; relativ: nur aktive."""
         s = ap.segments[segment]
-        return s.absolute is False or offset < len(s.data) or (segment, offset) in self.touched
+        if not s.absolute:
+            # relative Segmente: die ETS schreibt nur die aktiven Parameter (Maske im ETS-Ladeabbild
+            # von 1.1.231; Enertex 1.1.229 behält dort Werte früherer Einstellungen)
+            return (segment, offset) in self.touched
+        return offset < len(s.data) or (segment, offset) in self.touched
 
     def owner(self, segment: str, offset: int) -> list[Write]:
         """Welche Parameter liegen auf diesem Byte? (für Abweichungsberichte)"""
@@ -313,13 +317,25 @@ def check_against_store(ap: AppParams | None, device, store, mask: int | None, n
                     owners = [f"{w.text.strip() or '(versteckt)'} [{w.instance_id.rsplit('_', 2)[-2]}]" for w in img.owner(sid, off)]
                     c.param_diff.append((sid, off, mem[base + off], buf[off], owners))
 
+    linked = set()
+    for link in device.links:
+        n = link.number if link.number is not None else (number_of(link) if number_of else None)
+        if n is not None and link.gas:
+            linked.add(n)
+    if ap is not None and mask == SYSTEM_B:
+        from .decode import _objects as objs_, _table as table_
+        from .device import OT_GROUP_OBJECT_TABLE
+        entries = table_(raw, objs_(raw), OT_GROUP_OBJECT_TABLE, 2, 2)
+        if entries is not None:
+            calc = object_table_b(ap, ap.evaluate_values(device.params), linked)
+            dev = len(entries).to_bytes(2, "big") + b"".join(entries)
+            n = max(len(dev), len(calc))
+            diff = [(i, dev[i] if i < len(dev) else -1, calc[i] if i < len(calc) else -1)
+                    for i in range(n) if (dev[i] if i < len(dev) else -1) != (calc[i] if i < len(calc) else -1)]
+            c.object_table = (n - len(diff), n)
+            c.object_table_diff = diff
     if ap is not None and ap.co_table:
         ev = ap.evaluate_values(device.params)
-        linked = set()
-        for link in device.links:
-            n = link.number if link.number is not None else (number_of(link) if number_of else None)
-            if n is not None and link.gas:
-                linked.add(n)
         ot = object_table(ap, ev, linked)
         if ot is not None:
             seg_id, off, data = ot
@@ -363,7 +379,7 @@ def object_table(ap: AppParams, ev, linked: set[int]) -> tuple[str, int, bytes] 
       (Aktualisieren 0x80, Übertragen 0x40, Schreiben 0x10, Lesen 0x08), Bit 0x20 aus der Vorlage,
       Priorität (Bit 0–1) aus der Variante, Kommunikation (0x04) nur wenn mit einer GA verknüpft
     - inaktives Objekt: Vorlage ohne Kommunikations-Bit
-    Bekannte Ausnahme: Theben 1.1.152 lässt das Kommunikations-Bit unverknüpfter Objekte stehen.
+    Bekannte Ausnahme: B.E.G. 1.1.152 lässt das Kommunikations-Bit unverknüpfter Objekte stehen.
     """
     if not ap.co_table:
         return None
@@ -380,12 +396,30 @@ def object_table(ap: AppParams, ev, linked: set[int]) -> tuple[str, int, bytes] 
         key = ev.active_cos.get(i)
         v = ap.app.variant_by_ref.get(key) if key else None
         if v is not None:
-            f = v.flags
-            entry[2] = ((entry[2] & 0x20) | (0x80 if f.get("update") else 0) | (0x40 if f.get("transmit") else 0)
-                        | (0x10 if f.get("write") else 0) | (0x08 if f.get("read") else 0)
-                        | (0x04 if i in linked else 0) | PRIORITY_CODE.get(v.priority, 3))
+            entry[2] = _config(v, i in linked, entry[2])
             entry[3] = SIZE_CODE.get(v.size or "", entry[3])
         else:
             entry[2] &= ~0x04
         out += entry
     return seg_id, off, bytes(out)
+
+
+def _config(v, linked: bool, template: int = 0) -> int:
+    """Konfigurationsbyte eines aktiven Objekts (System 7 und B gleich kodiert)."""
+    f = v.flags
+    return ((template & 0x20) | (0x80 if f.get("update") else 0) | (0x40 if f.get("transmit") else 0)
+            | (0x10 if f.get("write") else 0) | (0x08 if f.get("read") else 0)
+            | (0x04 if linked else 0) | PRIORITY_CODE.get(v.priority, 3))
+
+
+def object_table_b(ap: AppParams, ev, linked: set[int]) -> bytes:
+    """Gruppenobjekttabelle System B: Anzahl (2 Byte) = höchste Objektnummer, dann je Objekt ab 1
+    (Konfiguration, Typ); inaktive Objekte 00 00. An 3 Geräten der Testanlage geprüft."""
+    numbers = set(ap.app.ref_number.values()) | {n for n, base in ap.co_numbers.values() if not base}
+    count = max(numbers) if numbers else 0
+    out = bytearray(count.to_bytes(2, "big"))
+    for n in range(1, count + 1):
+        key = ev.active_cos.get(n)
+        v = ap.app.variant_by_ref.get(key) if key else None
+        out += bytes([_config(v, n in linked), SIZE_CODE.get(v.size or "", 0)]) if v is not None else b"\x00\x00"
+    return bytes(out)

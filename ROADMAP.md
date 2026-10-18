@@ -158,8 +158,8 @@ irgendetwas geschrieben wird.
   Geräten hinterlegt die ETS das zuletzt geladene Abbild samt Schreibmaske; gültige Bytes = Gerät
   (4/4). Eigene Berechnung dagegen: 1.1.231 277/277, 1.1.81 374/374, 1.1.152 1267/1269,
   1.1.161 687/812 – Reste nur in der Gruppenobjekttabelle (System 7, noch nicht erzeugt).
-  Maske zeigt: MDT/Gira/Elsner schreiben die Bytes *aller* Parameter (inaktive mit Standardbild),
-  Theben 1.1.231 nur die aktiven. Die Restabweichungen 1.1.231 zum Gerät sind ungeschriebene Bytes.
+  Maske zeigt: in absoluten Segmenten (MDT, Jung, B.E.G. 1.1.152) schreibt die ETS die Bytes
+  *aller* Parameter (inaktive mit Standardbild), in relativen (B.E.G. 1.1.231) nur die aktiven. Die Restabweichungen 1.1.231 zum Gerät sind ungeschriebene Bytes.
 - ETS-Prüfung 18.10.: alle Geräte Adr/Prg/Par/Grp/Cfg gesetzt – die Abweichungen 1.1.22/24,
   1.1.132, 1.1.83, 1.1.213/232 waren Regelfehler; mit „Werte pro Ref“ behoben (alle 0 Bytes).
 - Rest 99 Bytes: 1.1.229 (73, ungeklärt), 1.1.231 (8, von der ETS nicht geschriebene Bytes),
@@ -170,8 +170,22 @@ irgendetwas geschrieben wird.
   + 1, Zeiger aus der Vorlage im Code-Segment, aktive Objekte bekommen Größe/Flags/Priorität
   ihrer Variante, Kommunikations-Bit nur bei Verknüpfung, inaktive Vorlage ohne Kommunikation.
   Offen: Steinel 1.1.111/121/131 behalten Anzahl der Vorlage (vermutlich älterer Download),
-  Theben 1.1.152 lässt das Kommunikations-Bit unverknüpfter Objekte stehen.
-- Offen in E3: Gerät 1.1.229 (73 Bytes ohne Erklärung, relatives Segment), PIR 1.1.231 (8),
+  B.E.G. 1.1.152 lässt das Kommunikations-Bit unverknüpfter Objekte stehen.
+- **Relative Segmente:** die ETS schreibt nur aktive Parameter; Enertex 1.1.229 behält dort Werte
+  früherer Einstellungen (z. B. „Sequenz 2“, 60 s) – damit 1.1.229 erklärt. Parameterspeicher jetzt
+  **29 071 gleich / 19 abweichend**, Rest sind Kennzeichen, die die Geräte selbst setzen
+  („Szene speichern“ = 3, „Szenen überschreiben“, Steinel INIT_FlagAppSave, B.E.G. „Download:“ …).
+- **Gruppenobjekttabelle System B** (image.object_table_b): Anzahl = höchste Objektnummer, je Objekt
+  (Konfiguration, Typ), inaktiv 00 00 – 3/3 Geräte byte-genau (Gira X1 ohne lesbare Tabelle).
+- Ausnahmen System-7-Objekttabelle (Steinel 1.1.111/121/131, B.E.G. 1.1.152): alle 2026 zuletzt
+  geladen, aber vermutlich nur teilweise – die Tabelle stammt wohl aus einem älteren Komplett-
+  Download; prüfbar erst durch einen Komplett-Download.
+- **Ladeablauf** (loadplan.py, `knxlens plan projekt.knxlens PA [--kind all|par|grp] [--bytes]`):
+  Schritte aus der Produktdatei (System 7) bzw. Maskenprozedur aus knx_master.xml mit eingesetzten
+  MergeId-Bausteinen (System B), Schreibschritte mit den berechneten Bytes. Nur Anzeige.
+- Offen in E3: System-B-Parameter nur mit aktiven Bytes schreiben (ETS-Maske beginnt bei Offset
+  0x1a), Property-Parameter, BCU1, ParameterCalculation.
+- Erledigt: Gerät 1.1.229 (73 Bytes ohne Erklärung, relatives Segment), PIR 1.1.231 (8),
   je 1 Byte ohne Parameter bei den LED-Controllern 1.1.239/249/254, Gruppenobjekttabelle
   (System B), Property-Parameter, BCU1-Speicherkarte, `ParameterCalculation`, Ladeablauf
   (LdCtrl-Folge) als ausführbarer Plan für E4.

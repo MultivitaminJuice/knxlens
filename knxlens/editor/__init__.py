@@ -25,7 +25,8 @@ from ..project.reconstruct import catalog_key as _catalog_key, rel_ref
 from ..project.ops import ga_raw as GroupAddressRaw
 from ..traffic import format_value
 from .busmon import SERVICES, BusMonitor
-from ..project.products import MAX_PRODUCT_FILE, ProductError, add_products, app_for, product_texts, project_catalog
+from ..project.products import (MAX_PRODUCT_FILE, ProductError, add_products, app_for, manufacturer_names, product_texts,
+                                project_catalog)
 
 STATIC = Path(__file__).parent.parent / "web" / "static" / "editor"
 MEDIUM = MEDIA
@@ -490,10 +491,12 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
     @app.get("/api/catalog")
     def catalog_list():
         out = []
+        names = manufacturer_names(state.project)
         for app_ in state.catalog.apps.values():
             for (pid, h2p), (name, order) in zip(app_.product_refs, app_.products):
                 out.append({"product_ref": pid, "h2p_ref": h2p, "app_id": app_.full_id, "name": name,
-                            "order": order, "manufacturer": app_.key[:6], "application": app_.name})
+                            "order": order, "manufacturer": names.get(app_.key[:6], app_.key[:6]),
+                            "manufacturer_id": app_.key[:6], "application": app_.name})
         return sorted(out, key=lambda x: (x["manufacturer"], x["name"]))
 
     @app.post("/api/products")

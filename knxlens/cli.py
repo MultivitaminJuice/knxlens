@@ -191,6 +191,32 @@ def cmd_image(args: argparse.Namespace) -> None:
     print(f"\nGesamt: Parameterbytes {total_eq} gleich, {total_diff} abweichend; Tabellen {tables_ok}/{tables_all} gleich")
 
 
+def cmd_plan(args: argparse.Namespace) -> None:
+    """Ladeablauf eines Geräts anzeigen (nur Beschreibung, kein Buszugriff)."""
+    from .loadplan import device_plan
+    from .params import AppParams
+    from .project import Project
+    from .project.products import app_for, project_catalog
+    from .project.reconstruct import object_number
+
+    p = Project.load(args.project)
+    d = p.device(args.pa)
+    if d is None:
+        raise SystemExit(f"Gerät {args.pa} nicht im Projekt")
+    app = app_for(project_catalog(p), d.app_id)
+    if app is None:
+        raise SystemExit("Keine Produktdaten zu diesem Gerät")
+    steps = device_plan(AppParams(app), d, p.products.get("knx_master.xml"), args.kind,
+                        lambda l: object_number(app, l.ref))
+    total = sum(len(s.data) for s in steps if s.data and s.writes)
+    print(f"{d.pa} {d.name or app.name} – Download „{args.kind}“: {len(steps)} Schritte, {total} Byte zu schreiben")
+    for i, s in enumerate(steps, 1):
+        extra = f"  [{len(s.data)} Byte]" if s.data else ""
+        print(f"{i:3}. {'✎' if s.writes else ' '} {s.text}{extra}")
+        if args.bytes and s.data:
+            print("       " + s.data[:48].hex(" ") + (" …" if len(s.data) > 48 else ""))
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -263,6 +289,13 @@ def main() -> None:
     s.add_argument("pa", nargs="*", help="nur diese Geräte")
     s.add_argument("--details", type=int, default=0, help="so viele abweichende Bytes je Gerät zeigen")
     s.set_defaults(func=cmd_image)
+
+    s = sub.add_parser("plan", help="Ladeablauf eines Geräts anzeigen (nichts wird gesendet)")
+    s.add_argument("project", help="Projektdatei *.knxlens")
+    s.add_argument("pa", help="physikalische Adresse, z. B. 1.1.212")
+    s.add_argument("--kind", default="all", choices=["all", "par", "grp"], help="Art des Downloads")
+    s.add_argument("--bytes", action="store_true", help="Anfang der Daten zeigen")
+    s.set_defaults(func=cmd_plan)
 
     s = sub.add_parser("serve", help="Weboberfläche (nur gespeicherte Daten, kein Buszugriff)")
     s.add_argument("--reference", help="xknxproject-JSON des Referenzprojekts (optional)")
