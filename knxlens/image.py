@@ -245,6 +245,8 @@ class Check:
     pa: str
     param_equal: int = 0
     param_diff: list[tuple[str, int, int, int, list[str]]] = field(default_factory=list)  # (Segment, Offset, Gerät, berechnet, Parameter)
+    ets_equal: int = 0  # Vergleich mit dem ETS-Ladeabbild im Projekt (falls vorhanden)
+    ets_diff: list[tuple[str, int, int, int, list[str]]] = field(default_factory=list)
     address_table: bool | None = None  # None = nicht lesbar
     association_table: bool | None = None
     problems: list[str] = field(default_factory=list)
@@ -266,8 +268,27 @@ def check_against_store(ap: AppParams | None, device, store, mask: int | None, n
             mem[a + i] = b
     raw = Raw(store, device.pa)
 
+    def rel_base(lsm: int) -> int | None:
+        ref = raw.prop(lsm, PID_TABLE_REFERENCE)
+        return int.from_bytes(ref, "big") if ref else None
+
     if ap is not None:
         img = param_image(ap, device.params)
+        if device.extra.get("LoadedImage"):
+            from .project.loaded_image import absolute, parse
+            ets = absolute(parse(device.extra["LoadedImage"]), rel_base)
+            for sid, buf in img.segments.items():
+                seg = ap.segments[sid]
+                base = seg.address if seg.absolute else rel_base(seg.lsm)
+                if base is None:
+                    continue
+                for off in range(len(buf)):
+                    if base + off in ets and img.defined(sid, off, ap):
+                        if ets[base + off] == buf[off]:
+                            c.ets_equal += 1
+                        else:
+                            owners = [w.text.strip() or "(versteckt)" for w in img.owner(sid, off)]
+                            c.ets_diff.append((sid, off, ets[base + off], buf[off], owners))
         c.problems += img.problems
         needed: dict[str, set[int]] = {}
         for sid, start, n in ap.needed_ranges():

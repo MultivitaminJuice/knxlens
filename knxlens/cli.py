@@ -176,6 +176,8 @@ def cmd_image(args: argparse.Namespace) -> None:
                 tables_all += 1
                 tables_ok += ok
                 flags.append(f"{name} {'=' if ok else '≠'}")
+        if c.ets_equal or c.ets_diff:
+            flags.append(f"ETS-Abbild {c.ets_equal}/{c.ets_equal + len(c.ets_diff)} gleich")
         print(f"{d.pa:10} Parameterbytes {c.param_equal:5} gleich, {len(c.param_diff):4} abweichend  {'  '.join(flags)}")
         for sid, off, dev, calc, owners in c.param_diff[: args.details]:
             print(f"    {sid.rsplit('_', 1)[-1]}+{off:#06x}  Gerät {dev:08b}  berechnet {calc:08b}  {'; '.join(owners[:2])}")

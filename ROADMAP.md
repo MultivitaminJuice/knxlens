@@ -150,10 +150,17 @@ irgendetwas geschrieben wird.
 - Erklärte Rest-Abweichungen: Flags, die das Gerät nach dem Download selbst ändert
   (Steinel `INIT_FlagAppSave`, Theben „Download:“, MDT „Teach-in value at loading“, Gira
   „Downloaderkennung“, Theben/Elsner „$AA“, MDT „Szenen überschreiben“); vermutlich Projekt
-  geändert, nicht übertragen: Texte/Symbole am Glastaster 1.1.132, „Senden EIN alle“ 1.1.83,
-  „Einschaltverhalten Tag“ 1.1.22/1.1.24, „extra langer Tastendruck“ 1.1.213/1.1.232 (Prüfung
-  in der ETS durch Dirk steht aus).
-- Offen in E3: Gerät 1.1.229 (73 Bytes ohne Erklärung, relatives Segment), PIR 1.1.231 (8),
+  geändert, nicht übertragen – durch die ETS-Prüfung widerlegt (siehe unten).
+- **ETS-Ladeabbild (`LoadedImage`) im Projekt entschlüsselt** (project/loaded_image.py): bei 4
+  Geräten hinterlegt die ETS das zuletzt geladene Abbild samt Schreibmaske; gültige Bytes = Gerät
+  (4/4). Eigene Berechnung dagegen: 1.1.231 277/277, 1.1.81 374/374, 1.1.152 1267/1269,
+  1.1.161 687/812 – Reste nur in der Gruppenobjekttabelle (System 7, noch nicht erzeugt).
+  Maske zeigt: MDT/Gira/Elsner schreiben die Bytes *aller* Parameter (inaktive mit Standardbild),
+  Theben 1.1.231 nur die aktiven. Die Restabweichungen 1.1.231 zum Gerät sind ungeschriebene Bytes.
+- ETS-Prüfung 18.10.: alle Geräte Adr/Prg/Par/Grp/Cfg gesetzt – Abweichungen 1.1.22/24, 1.1.132,
+  1.1.83, 1.1.213/232 sind daher Regelfehler, keine vergessenen Downloads (zu untersuchen).
+- Offen in E3: Gruppenobjekttabelle System 7 (Beispiele jetzt aus den ETS-Abbildern von 1.1.152
+  und 1.1.161), Gerät 1.1.229 (73 Bytes ohne Erklärung, relatives Segment), PIR 1.1.231 (8),
   je 1 Byte ohne Parameter bei den LED-Controllern 1.1.239/249/254, Gruppenobjekttabelle
   (System B), Property-Parameter, BCU1-Speicherkarte, `ParameterCalculation`, Ladeablauf
   (LdCtrl-Folge) als ausführbarer Plan für E4.
