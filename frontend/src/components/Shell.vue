@@ -71,6 +71,17 @@ function addView(kind: View, position?: Record<string, unknown>) {
 
 // Vorlagen: schnelle Anordnungen; danach frei per Ziehen an die Ränder veränderbar
 const PRESETS: Record<string, { label: string; build: () => void }> = {
+  ets: {
+    label: 'ETS-Standard: Topologie über GAs | Gerät über Gruppenadresse',
+    build: () => {
+      const t = addView('topology')!
+      const d = addView('device', { referencePanel: t.id, direction: 'right' })!
+      addView('groupaddresses', { referencePanel: t.id, direction: 'below' })
+      addView('gadetail', { referencePanel: d.id, direction: 'below' })
+      // linke Spalte schmaler, wie in der ETS
+      try { api.value?.getPanel(t.id)?.group.api.setSize({ width: 420 }) } catch { /* Größe ist nur Komfort */ }
+    },
+  },
   classic: {
     label: 'Topologie | Gruppenadressen | Eigenschaften',
     build: () => {

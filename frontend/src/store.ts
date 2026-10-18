@@ -281,7 +281,7 @@ export function dropAction(target: Item, items: Item[], copy: boolean): { label:
 export interface PaneHandle { kind: TreeKind; reveal: (key: string) => Promise<boolean | undefined> }
 export const panes = new Map<string, PaneHandle>()
 
-export type ViewKind = TreeKind | 'inspector' | 'monitor'
+export type ViewKind = TreeKind | 'inspector' | 'monitor' | 'device' | 'gadetail'
 export const VIEW_TITLES: Record<ViewKind, string> = {
   groupaddresses: 'Gruppenadressen',
   topology: 'Topologie',
@@ -289,4 +289,6 @@ export const VIEW_TITLES: Record<ViewKind, string> = {
   catalog: 'Katalog',
   inspector: 'Eigenschaften',
   monitor: 'Gruppenmonitor',
+  device: 'Gerät',
+  gadetail: 'Gruppenadresse',
 }

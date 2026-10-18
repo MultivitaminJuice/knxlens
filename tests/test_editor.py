@@ -41,7 +41,8 @@ def test_ga_detail(client):
     g = client.get("/api/ga/1/1/1").json()
     assert g["name"] == "Flur 1" and g["central"]
     assert g["users"] == [{"uid": "P-0123-0_DI-1", "pa": "1.1.5", "device": "Taster Flur", "ref": "O-0_R-1", "number": 0,
-                           "object": "Taste 1 – Schalten", "sending": False}]
+                           "object": "Taste 1 – Schalten", "sending": False, "dpt": "1.001", "size": "1 Bit",
+                           "flags": "K-SÜ-", "priority": "Niedrig"}]
     assert client.get("/api/ga/1/1/2").json()["users"][0]["sending"] is True
 
 

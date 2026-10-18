@@ -51,6 +51,7 @@ export interface DeviceObject {
   size: string | null
   dpt: string
   flags: string
+  priority: string
   active: boolean
   gas: { address: string; name: string }[]
 }
@@ -91,7 +92,10 @@ export interface GaDetail {
   dpt: string
   description: string
   central: boolean
-  users: { uid: string; pa: string | null; device: string; ref: string; number: number | null; object: string; sending: boolean }[]
+  users: {
+    uid: string; pa: string | null; device: string; ref: string; number: number | null; object: string; sending: boolean
+    dpt: string; size: string; flags: string; priority: string
+  }[]
 }
 
 export class ApiError extends Error {

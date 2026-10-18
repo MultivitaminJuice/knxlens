@@ -56,6 +56,7 @@ class ObjectVariant:
     dpt: dict | None
     size: str | None
     flags: dict[str, bool]
+    priority: str = "Low"  # Low, High, Alert
 
     @property
     def label(self) -> str:
@@ -166,6 +167,7 @@ def parse_application(xml: bytes, source: str = "") -> Application | None:
             dpt=parse_dpt(merged.get("DatapointType")),
             size=merged.get("ObjectSize"),
             flags=_flags(merged),
+            priority=merged.get("Priority", "Low"),
         )
         # Module: dieselbe Ref-Id je Instanz mit anderem Kanaltext → Schlüssel mit Instanz
         key = f"{instance}|{ref.get('Id')}" if instance else ref.get("Id")

@@ -78,6 +78,16 @@ class EditorState:
         return app.products[0][0] if app.products else app.name
 
 
+def _flag_text(flags: dict) -> str:
+    return "".join(c if flags.get(k) else "-" for c, k in zip("KLSÜA", ("communication", "read", "write", "transmit", "update")))
+
+
+def _dpt_text(dpt: dict | None) -> str:
+    if not dpt:
+        return ""
+    return f"{dpt['main']}.{dpt['sub']:03d}" if dpt.get("sub") is not None else str(dpt["main"])
+
+
 def device_detail(state: EditorState, d: Device) -> dict:
     app = state.app(d)
     ga_names = {g.address: g.name for g in state.project.group_addresses.values()}
@@ -105,8 +115,8 @@ def device_detail(state: EditorState, d: Device) -> dict:
             "ref": rel_ref(app, key), "number": number, "text": v.text, "function": v.function, "size": v.size,
             "dpt": f"{v.dpt['main']}.{v.dpt['sub']:03d}" if v.dpt and v.dpt.get("sub") is not None
             else (str(v.dpt["main"]) if v.dpt else ""),
-            "flags": "".join(c if v.flags.get(k) else "-" for c, k in zip(
-                "KLSÜA", ("communication", "read", "write", "transmit", "update"))),
+            "flags": _flag_text(v.flags),
+            "priority": {"Low": "Niedrig", "High": "Hoch", "Alert": "Alarm"}.get(v.priority, v.priority),
             "active": key in ev.active_cos.values(),
             "gas": [{"address": g, "name": ga_names.get(g, "")} for g in linked.get(key, [])],
         })
@@ -646,7 +656,11 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
                     users.append({"uid": d.uid, "pa": d.pa, "device": d.name or state.product_name(d), "ref": link.ref,
                                   "number": app.ref_number.get(key) if app and key else None,
                                   "object": " – ".join(x for x in (v.text, v.function) if x) if v else link.ref,
-                                  "sending": link.gas[0] == address})
+                                  "sending": link.gas[0] == address,
+                                  "dpt": _dpt_text(_dpt(link.extra.get("DatapointType", "")) or (v.dpt if v else None)),
+                                  "size": v.size if v else "",
+                                  "flags": _flag_text(v.flags) if v else "",
+                                  "priority": {"Low": "Niedrig", "High": "Hoch", "Alert": "Alarm"}.get(v.priority, v.priority) if v else ""})
         return {"address": address, "name": g.name, "dpt": g.dpt, "description": g.description,
                 "central": g.extra.get("Central") == "true", "users": users}
 
