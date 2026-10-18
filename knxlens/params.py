@@ -277,7 +277,11 @@ class AppParams:
         Fehlende Parameter haben ihren Standardwert. Kein Speicherzugriff, keine Ableitung.
         """
         keyed = {re.sub(r"_R-\d+$", "", k): v for k, v in values.items()}
-        return self._settle(lambda: Evaluation(self, lambda a, n: None, lambda o, p: None, lambda l: None, set(), keyed))
+        def make():
+            ev = Evaluation(self, lambda a, n: None, lambda o, p: None, lambda l: None, set(), keyed)
+            ev.exact_values = dict(values)
+            return ev
+        return self._settle(make)
 
     def _settle(self, make: Callable[[], Evaluation]) -> Evaluation:
         """Auswerten, bis die sichtbaren Parameter feststehen.
@@ -429,7 +433,9 @@ class Evaluation:
             return v
         if self.project_values is not None:
             raw = None
-            stored = self.project_values.get(re.sub(r"_R-\d+$", "", instance_id))
+            # Werte gehören zur Ref (wie in der ETS), nicht zum Parameter: andere Refs desselben
+            # Parameters haben eigene Werte (belegt an MDT-Dimmern und -Tastern, 1.1.22/24/213/232)
+            stored = self.exact_values.get(instance_id)
             if stored is not None:
                 value, display = parse_value(ref, stored)
                 from_project = True

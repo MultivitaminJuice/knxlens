@@ -21,11 +21,14 @@ def test_param_image_rules(tmp_path):
     assert img2.segments[SEG][2:4] == b"\x01\x2c" and not img2.defined(SEG, 16 + 4, ap)
 
 
-def test_fixed_ref_wins_over_other_refs_value(tmp_path):
+def test_fixed_ref_value(tmp_path):
     ap, _ = setup(tmp_path, {})
-    # P-7 (Access Read) im aktiven Zweig: ein Projektwert unter anderer Ref ändert nichts
+    # P-7 (Access Read) im aktiven Zweig: Wert unter anderer Ref ändert nichts …
     img = param_image(ap, {f"{APP}_P-7_R-99": "500"})
     assert img.segments[SEG][16:18] == b"\x00\x01"
+    # … ein an genau dieser Ref gespeicherter Wert schon (wie bei MDT 1.1.83)
+    img = param_image(ap, {f"{APP}_P-7_R-7": "500"})
+    assert img.segments[SEG][16:18] == (500).to_bytes(2, "big")
 
 
 def test_put_bits():
@@ -98,3 +101,12 @@ def test_tables_skip_inactive_objects():
     t = tables(_dev(), 0x0705, active={0, 3})  # Objekt 1 inaktiv
     assert t.addresses == ["1/1/1", "1/1/2"] and (1, 1) not in [(a, b) for a, b in t.associations]
     assert any("Objekt 1 ist inaktiv" in p for p in t.problems)
+
+
+def test_values_belong_to_the_ref(tmp_path):
+    ap, _ = setup(tmp_path, {})
+    # Wert unter einer anderen Ref desselben Parameters gilt nicht für die aktive Ref
+    img = param_image(ap, {f"{APP}_P-3_R-77": "-2"})
+    assert img.segments[SEG][4] == 0
+    img = param_image(ap, {f"{APP}_P-3_R-3": "-2"})
+    assert img.segments[SEG][4] == 0xFE

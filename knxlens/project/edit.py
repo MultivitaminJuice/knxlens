@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 
 from .. import params
 from . import Device
@@ -12,15 +11,11 @@ class EditError(ValueError):
     """Ungültige Bearbeitung – Meldung ist für den Nutzer gedacht."""
 
 
-def _param_key(instance_id: str) -> str:
-    return re.sub(r"_R-\d+$", "", instance_id)
-
-
 def set_param(ap: params.AppParams, device: Device, instance_id: str, text: str | None) -> bool:
     """Parameter setzen (text=None: auf Standard zurücksetzen). Liefert True, wenn sich etwas geändert hat.
 
-    Wie die ETS speichert das Projekt nur vom Standard abweichende Werte; ältere Einträge
-    desselben Parameters unter anderer Ref-Id werden ersetzt.
+    Wie die ETS speichert das Projekt nur vom Standard abweichende Werte, und zwar an der Ref:
+    andere Refs desselben Parameters behalten ihre eigenen Werte.
     """
     ev = ap.evaluate_values(device.params)
     visible = next((v for v in ev.values if v.instance_id == instance_id), None)
@@ -29,10 +24,8 @@ def set_param(ap: params.AppParams, device: Device, instance_id: str, text: str 
     if visible.internal:
         raise EditError("Parameter ist nicht änderbar")
     ref = ap.refs[visible.ref_id]
-    key = _param_key(instance_id)
     before = dict(device.params)
-    for k in [k for k in device.params if _param_key(k) == key]:
-        del device.params[k]
+    device.params.pop(instance_id, None)
     if text is not None:
         try:
             value, stored = params.validate(ref, text)

@@ -8,11 +8,13 @@ Regeln (gegen ausgelesene Geräte geprüft, siehe tests/test_image.py und `knxle
   Segmenten aufgefüllt mit dem Fill-Wert aus LdCtrlRelSegment (nur Bytes ohne Parameter; Bytes
   mit Parametern beginnen bei 0). Bei absoluten Segmenten ohne Standardbild schreibt die ETS nur
   die Parameterbytes (Lücken behalten im Gerät ihren alten Inhalt) – siehe ParamImage.defined.
-- Geschrieben werden die Parameter im aktiven Teil des Dynamic-Baums mit Projektwert bzw.
-  Standardwert der aktiven ParameterRef. Nicht änderbare Refs (Access None/Read) geben ihren
-  Wert fest vor, auch wenn das Projekt über eine andere Ref einen Wert für den Parameter hat.
-- Parameter außerhalb des aktiven Teils schreibt die ETS nicht (gegengeprüft: sonst 7 514 statt
-  124 abweichende Bytes).
+- Geschrieben werden die Parameter im aktiven Teil des Dynamic-Baums mit dem Projektwert der
+  aktiven ParameterRef bzw. deren Standardwert. Werte gehören zur Ref, nicht zum Parameter:
+  ein Wert unter einer anderen Ref desselben Parameters gilt nicht, ein unter einer nicht
+  änderbaren Ref gespeicherter Wert schon (MDT 1.1.22/24/83/213/232).
+- Parameter außerhalb des aktiven Teils bekommen keinen Projektwert; ihre Bytes behalten das
+  Standardbild (MDT/Gira schreiben sie so mit, siehe ETS-Ladeabbild; mit ihren Standardwerten
+  beschrieben wären es 7 514 statt 124 abweichende Bytes).
 - Mehrere aktive Refs eines Parameters: die änderbare gilt, sonst die erste im Baum.
 - Unions: nur das aktive Mitglied; ist keins aktiv, bleibt das Standardbild (DefaultUnionParameter
   wird nicht geschrieben – gegengeprüft, das Gerät enthält dort das Bild der Produktdatei).
@@ -21,7 +23,6 @@ Regeln (gegen ausgelesene Geräte geprüft, siehe tests/test_image.py und `knxle
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 
 from .params import AppParams, Context, Param, PRef, _default, encode_value, parse_value
@@ -86,7 +87,6 @@ def param_image(ap: AppParams, values: dict[str, str]) -> ParamImage:
     """values: Projektwerte des Geräts {ParameterInstanceRef-Id: Wert} (nur Abweichungen vom Standard)."""
     img = ParamImage({sid: _initial(ap, s) for sid, s in ap.segments.items()})
     ev = ap.evaluate_values(values)
-    keyed = {re.sub(r"_R-\d+$", "", k): v for k, v in values.items()}
 
     # aktive Refs: alles, was die Auswertung im aktiven Teil aufgelöst hat
     active: dict[tuple[str, str | None], tuple[PRef, Context, str]] = {}
@@ -101,8 +101,8 @@ def param_image(ap: AppParams, values: dict[str, str]) -> ParamImage:
 
     chosen: dict[tuple[str, str | None], tuple[PRef, Context, str, object]] = {}
     for key, (ref, ctx, iid) in active.items():
-        # nicht änderbare Refs geben ihren Wert fest vor (überschreibt Werte anderer Refs desselben Parameters)
-        stored = None if ref.access in ("None", "Read") else keyed.get(re.sub(r"_R-\d+$", "", iid))
+        # Wert der aktiven Ref aus dem Projekt, sonst ihr Standardwert – auch bei nicht änderbaren Refs
+        stored = values.get(iid)
         value = parse_value(ref, stored)[0] if stored is not None else _default(ref)[0]
         chosen[key] = (ref, ctx, iid, value)
 

@@ -54,7 +54,7 @@ def check(ev: Evaluation, values: dict[str, str]) -> ParamCheck:
             r.only_ets += 1
             continue
         r.from_device += 1
-        expected = by_param.get(v.param_key, v.default)
+        expected = values.get(v.instance_id, v.default)  # Werte gehören zur Ref
         if _same(v.value, expected):
             r.equal += 1
         elif v.untouched:

@@ -136,9 +136,12 @@ irgendetwas geschrieben wird.
 - **Adress- und Assoziationstabelle: 80/80 Tabellen der 40 Geräte byte-genau gleich.**
   Adressen aufsteigend (System 7 mit eigener PA vorn), Assoziationen erst je Objekt die
   sendende GA nach Objektnummer, dann die übrigen.
-- **Parameterspeicher: 33 811 Bytes gleich, 136 abweichend** (Projektwerte gegen Gerät).
+- **Parameterspeicher: 33 848 Bytes gleich, 99 abweichend** (Projektwerte gegen Gerät).
 - Gefundene Regeln (je durch Vergleich bestätigt bzw. widerlegt):
-  - nicht änderbare Refs (Access None/Read) geben ihren Wert fest vor;
+  - **Werte gehören zur Ref, nicht zum Parameter** (die ETS speichert pro ParameterInstanceRef;
+    ein Wert unter einer anderen Ref desselben Parameters gilt nicht, ein an einer nicht änderbaren
+    Ref gespeicherter schon) – erklärt 1.1.22/24/83/132/213/232 (136 → 99 Bytes); der Editor
+    speichert seither ebenfalls pro Ref;
   - mehrere aktive Refs eines Parameters: die änderbare gilt, sonst die erste;
   - inaktive Parameter und inaktive Unions werden nicht geschrieben (DefaultUnionParameter nicht);
   - ein choose gilt nur, wenn sein Schalter selbst sichtbar ist (über irgendeine Ref);
@@ -157,8 +160,11 @@ irgendetwas geschrieben wird.
   1.1.161 687/812 – Reste nur in der Gruppenobjekttabelle (System 7, noch nicht erzeugt).
   Maske zeigt: MDT/Gira/Elsner schreiben die Bytes *aller* Parameter (inaktive mit Standardbild),
   Theben 1.1.231 nur die aktiven. Die Restabweichungen 1.1.231 zum Gerät sind ungeschriebene Bytes.
-- ETS-Prüfung 18.10.: alle Geräte Adr/Prg/Par/Grp/Cfg gesetzt – Abweichungen 1.1.22/24, 1.1.132,
-  1.1.83, 1.1.213/232 sind daher Regelfehler, keine vergessenen Downloads (zu untersuchen).
+- ETS-Prüfung 18.10.: alle Geräte Adr/Prg/Par/Grp/Cfg gesetzt – die Abweichungen 1.1.22/24,
+  1.1.132, 1.1.83, 1.1.213/232 waren Regelfehler; mit „Werte pro Ref“ behoben (alle 0 Bytes).
+- Rest 99 Bytes: 1.1.229 (73, ungeklärt), 1.1.231 (8, von der ETS nicht geschriebene Bytes),
+  Laufzeit-Kennzeichen der Geräte (Steinel, Theben, Gira, MDT Teach-in), MDT „Szenen
+  überschreiben“ 1.1.13/14, je 1 Byte ohne Parameter bei den LED-Controllern.
 - Offen in E3: Gruppenobjekttabelle System 7 (Beispiele jetzt aus den ETS-Abbildern von 1.1.152
   und 1.1.161), Gerät 1.1.229 (73 Bytes ohne Erklärung, relatives Segment), PIR 1.1.231 (8),
   je 1 Byte ohne Parameter bei den LED-Controllern 1.1.239/249/254, Gruppenobjekttabelle
