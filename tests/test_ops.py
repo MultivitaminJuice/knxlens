@@ -153,3 +153,18 @@ def test_buildings(ed):
     ed.undo()
     ed.space_unassign(["P-0001-0_DI-1"])
     assert not any(s.devices for s in ed.project.spaces)
+
+
+def test_download_flags_follow_changes(ed):
+    from knxlens.project.ops import LOAD_FLAGS, load_state, needs_download
+    d = ed.project.devices[0]
+    d.extra.update({attr: "true" for attr in LOAD_FLAGS.values()})
+    assert not needs_download(d)
+    ed.ga_readdress("1/1/2", "1/1/9")  # Verknüpfung ändert sich → Grp
+    assert load_state(d) == {"adr": True, "prg": True, "par": True, "grp": False, "cfg": True}
+    ed.device_set_pa(d.uid, "1.1.7")
+    assert not load_state(d)["adr"] and load_state(d)["par"]
+    ed.undo(); ed.undo()
+    assert not needs_download(ed.project.devices[0])  # Rückgängig stellt die Kennzeichen wieder her
+    new = ed.device_copy([d.uid], 1, 2)[0]
+    assert not any(load_state(ed._device(new)).values())

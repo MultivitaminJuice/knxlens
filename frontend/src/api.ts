@@ -23,9 +23,13 @@ export interface TreeNode {
     holds_devices?: boolean
     space?: string
     medium_id?: string
+    load?: LoadState
+    count?: number
   }
   children?: TreeNode[]
 }
+
+export interface LoadState { adr: boolean; prg: boolean; par: boolean; grp: boolean; cfg: boolean }
 
 export interface ProjectInfo {
   name: string
@@ -82,6 +86,7 @@ export interface DeviceDetail {
   product: string
   app_id: string
   has_products: boolean
+  load: LoadState
   objects: DeviceObject[]
   params: { path: string[]; items: ParamItem[] }[]
 }

@@ -7,6 +7,7 @@ import ParamEditor from './ParamEditor.vue'
 import { api, type DeviceDetail, type DeviceObject } from '../api'
 import { dropAction, run, select, store, type Item } from '../store'
 
+const LOAD = [['adr', 'Adr'], ['prg', 'Prg'], ['par', 'Par'], ['grp', 'Grp'], ['cfg', 'Cfg']] as const
 const uid = ref<string | null>(null)
 const detail = ref<DeviceDetail | null>(null)
 const tab = ref<'objects' | 'params'>('objects')
@@ -64,6 +65,11 @@ function unlink(o: DeviceObject, address: string) {
       <span class="mono">{{ detail.pa ?? '–' }}</span>
       <strong>{{ detail.name || detail.product }}</strong>
       <span class="muted">{{ detail.name ? detail.product : '' }}</span>
+      <span class="spacer" />
+      <span class="load" title="Was laut Projekt im Gerät geladen ist (wie in der ETS)">
+        <span v-for="[k, l] in LOAD" :key="k" class="flag" :class="{ off: !detail.load[k] }"
+              :title="detail.load[k] ? `${l}: geladen` : `${l}: muss programmiert werden`">{{ l }}</span>
+      </span>
     </header>
     <p v-else class="muted empty">Gerät in der Topologie oder im Gebäude wählen.</p>
     <NTabs v-if="detail" v-model:value="tab" type="line" size="small" class="tabs" pane-class="tabpane" animated>
@@ -105,6 +111,11 @@ function unlink(o: DeviceObject, address: string) {
 .pane { height: 100%; display: flex; flex-direction: column; min-width: 0; background: var(--kl-bg); }
 .head { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px 0; font-size: 13px; white-space: nowrap; overflow: hidden; }
 .empty { padding: 12px; }
+.spacer { flex: 1; }
+.load { display: flex; gap: 3px; }
+.flag { font-size: 10.5px; padding: 0 5px; border-radius: 3px; background: #e3f3e8; color: #18794e; }
+.flag.off { background: #fdf0e6; color: #8a4b0f; }
+@media (prefers-color-scheme: dark) { .flag { background: #1d3b2a; color: #7ad3a0; } .flag.off { background: #3a2a1a; color: #f3c89b; } }
 .tabs { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 8px; }
 .tabs :deep(.n-tabs-pane-wrapper) { flex: 1; min-height: 0; }
 .tabs :deep(.tabpane) { height: 100%; display: flex; flex-direction: column; padding-top: 6px; }

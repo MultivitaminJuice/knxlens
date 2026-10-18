@@ -58,6 +58,7 @@ class Editor:
         except Exception:
             self._restore(snap)  # nichts halb geändert zurücklassen
             raise
+        mark_changes(snap["devices"], self.project.devices)
         self.undo_stack.append((name, snap))
         del self.undo_stack[:-UNDO_LIMIT]
         self.redo_stack.clear()
@@ -645,3 +646,43 @@ SPACE_CHILDREN: dict[str | None, tuple[str, ...]] = {
     "Stairway": ("DistributionBoard",),
     "DistributionBoard": (),
 }
+
+
+# --- Download-Status (wie die ETS: Adr / Prg / Par / Grp / Cfg) ------------------------------------
+
+LOAD_FLAGS = {
+    "adr": "IndividualAddressLoaded", "prg": "ApplicationProgramLoaded", "par": "ParametersLoaded",
+    "grp": "CommunicationPartLoaded", "cfg": "MediumConfigLoaded",
+}
+
+
+def load_state(d: Device) -> dict[str, bool]:
+    """Was ist laut Projekt im Gerät geladen? Neue Geräte: nichts."""
+    return {k: d.extra.get(attr) == "true" for k, attr in LOAD_FLAGS.items()}
+
+
+def needs_download(d: Device) -> bool:
+    return not all(load_state(d).values())
+
+
+def _unset(d: Device, *keys: str) -> None:
+    for k in keys:
+        d.extra[LOAD_FLAGS[k]] = "false"
+
+
+def mark_changes(before: list[Device], after: list[Device]) -> None:
+    """Nach einer Änderung die betroffenen Kennzeichen zurücksetzen (Vergleich vorher/nachher)."""
+    old = {d.uid: d for d in before}
+    for d in after:
+        o = old.get(d.uid)
+        if o is None:
+            _unset(d, *LOAD_FLAGS)  # neu eingefügt oder kopiert
+            continue
+        if (o.area, o.line, o.address) != (d.area, d.line, d.address):
+            _unset(d, "adr")
+        if o.params != d.params or o.modules != d.modules:
+            _unset(d, "par")
+        if [(l.ref, l.gas) for l in o.links] != [(l.ref, l.gas) for l in d.links]:
+            _unset(d, "grp")
+        if o.app_id != d.app_id:
+            _unset(d, "prg", "par", "grp")

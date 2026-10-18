@@ -73,9 +73,21 @@ function fromGa(nodes: TreeNode[]): Item[] {
   })
 }
 
+const LOAD_LABELS: [keyof NonNullable<TreeNode['data']['load']>, string][] = [['adr', 'Adr'], ['prg', 'Prg'], ['par', 'Par'], ['grp', 'Grp'], ['cfg', 'Cfg']]
+/** Fehlende Ladekennzeichen als Kurztext, z. B. „Par Grp“ – leer, wenn alles geladen ist. */
+export function missingLoad(load?: TreeNode['data']['load']): string {
+  if (!load) return ''
+  return LOAD_LABELS.filter(([k]) => !load[k]).map(([, l]) => l).join(' ')
+}
+
 function fromTopo(nodes: TreeNode[]): Item[] {
   return nodes.map((n) => {
     const t = n.data.type
+    if (t === 'folder')
+      return {
+        key: n.key, kind: 'folder', label: n.label, badge: String(n.data.count ?? 0), warn: !!n.data.count,
+        children: fromTopo(n.children ?? []),
+      }
     if (t === 'area')
       return {
         key: n.key, kind: 'area', label: n.data.name || 'Bereich', mono: String(n.data.area), area: n.data.area,
@@ -88,7 +100,11 @@ function fromTopo(nodes: TreeNode[]): Item[] {
         medium: n.data.medium_id, children: fromTopo(n.children ?? []),
       }
     const [pa, ...rest] = n.label.split(' ')
-    return { key: n.key, kind: 'device', label: rest.join(' '), mono: pa, uid: n.data.uid, lazy: true }
+    const missing = missingLoad(n.data.load)
+    return {
+      key: n.key, kind: 'device', label: rest.join(' '), mono: pa, uid: n.data.uid, lazy: !n.key.startsWith('need/'),
+      badge: missing || undefined, warn: !!missing,
+    }
   })
 }
 

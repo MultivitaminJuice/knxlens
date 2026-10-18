@@ -20,7 +20,7 @@ from ..catalog import Application, Catalog
 from ..project import Device, Project
 from ..project.edit import (EditError, editor_item, orphans, param_change_effect, rebind_variants, set_param,
                             unlink_orphans)
-from ..project.ops import MEDIA, SPACE_CHILDREN, SPACE_TYPES, Editor, OpError
+from ..project.ops import MEDIA, SPACE_CHILDREN, SPACE_TYPES, Editor, OpError, load_state, needs_download
 from ..project.reconstruct import catalog_key as _catalog_key, rel_ref
 from ..project.ops import ga_raw as GroupAddressRaw
 from ..traffic import format_value
@@ -94,6 +94,7 @@ def device_detail(state: EditorState, d: Device) -> dict:
     out = {
         "uid": d.uid, "pa": d.pa, "name": d.name, "description": d.description, "origin": d.origin,
         "product": state.product_name(d), "app_id": d.app_id, "has_products": app is not None,
+        "load": load_state(d),
         "objects": [], "params": [],
     }
     if app is None:
@@ -311,10 +312,17 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
                                                    "name": ln.name},
                 "children": [{
                     "key": d.uid, "label": f"{d.pa or '–'} {d.name or state.product_name(d)}",
-                    "icon": "pi pi-box", "leaf": False, "data": {"type": "device", "uid": d.uid, "pa": d.pa},
+                    "icon": "pi pi-box", "leaf": False,
+                    "data": {"type": "device", "uid": d.uid, "pa": d.pa, "load": load_state(d)},
                 } for d in sorted(devices, key=lambda d: (d.address is None, d.address or 0))],
             })
-        return list(areas.values())
+        # Suchordner wie in der ETS: Geräte, bei denen noch etwas zu laden ist
+        pending = [d for d in p.devices if needs_download(d)]
+        folder = {"key": "need", "label": "Programmieren notwendig", "data": {"type": "folder", "count": len(pending)},
+                  "children": [{"key": f"need/{d.uid}", "label": f"{d.pa or '–'} {d.name or state.product_name(d)}",
+                                "leaf": True, "data": {"type": "device", "uid": d.uid, "pa": d.pa, "load": load_state(d)}}
+                               for d in sorted(pending, key=lambda d: (d.area, d.line, d.address or 0))]}
+        return [folder] + list(areas.values())
 
     @app.get("/api/tree/buildings")
     def buildings():

@@ -19,7 +19,7 @@ def client(tmp_path, monkeypatch):
 
 def test_project_and_trees(client):
     assert client.get("/api/project").json()["devices"] == 2
-    topo = client.get("/api/tree/topology").json()
+    topo = [n for n in client.get("/api/tree/topology").json() if n["data"]["type"] == "area"]
     devices = topo[0]["children"][0]["children"]
     assert [d["label"] for d in devices] == ["1.1.5 Taster Flur", "– noch ohne Adresse"]
     gas = client.get("/api/tree/groupaddresses").json()
@@ -60,7 +60,7 @@ def test_topology_buildings_and_products(client, tmp_path):
     r = client.post("/api/op", json={"op": "area_add", "args": {"name": "Garage"}})
     assert r.status_code == 200 and r.json()["result"] == 2
     client.post("/api/op", json={"op": "line_add", "args": {"area": 2}})
-    topo = client.get("/api/tree/topology").json()
+    topo = [n for n in client.get("/api/tree/topology").json() if n["data"]["type"] == "area"]
     assert [a["label"] for a in topo] == ["1 Bereich", "2 Garage"]
     assert [l["data"]["line"] for l in topo[1]["children"]] == [0, 1]
     info = client.get("/api/project").json()
@@ -140,7 +140,7 @@ def test_project_files_new_save_as_versions(client, tmp_path, monkeypatch):
     assert [x["comment"] for x in client.get("/api/versions").json()] == ["Start"]  # Verlauf kam mit
     r = client.post("/api/project/new", json={"name": "Garage"})
     assert r.status_code == 200 and r.json()["name"] == "Garage" and r.json()["devices"] == 0
-    assert client.get("/api/tree/topology").json()[0]["children"][1]["data"]["line"] == 1
+    assert [n for n in client.get("/api/tree/topology").json() if n["data"]["type"] == "area"][0]["children"][1]["data"]["line"] == 1
     assert client.post("/api/project/new", json={"name": "Garage"}).status_code == 409  # gibt es schon
     back = next(f for f in client.get("/api/files").json()["files"] if f["name"] == "p")
     assert client.post("/api/project/open", json={"path": back["path"]}).json()["devices"] == 2
@@ -149,3 +149,13 @@ def test_project_files_new_save_as_versions(client, tmp_path, monkeypatch):
     assert exp.status_code == 200 and exp.content[:2] == b"PK"
     r = client.post("/api/project/import?name=Wieder.knxproj", content=exp.content)
     assert r.status_code == 200 and r.json()["file"] == "Wieder.knxlens" and r.json()["devices"] == 2
+
+
+def test_pending_download_folder(client):
+    def pending():
+        return [c["data"]["uid"] for c in client.get("/api/tree/topology").json()[0]["children"]]
+    assert client.get("/api/device/P-0123-0_DI-1").json()["load"]["par"] is True  # aus dem ETS-Import
+    client.post("/api/op", json={"op": "unlink", "args": {"device_uid": "P-0123-0_DI-1", "ref": "O-0_R-1", "address": "1/1/1"}})
+    assert "P-0123-0_DI-1" in pending()  # Testprojekt setzt nur ParametersLoaded
+    load = client.get("/api/device/P-0123-0_DI-1").json()["load"]
+    assert load["grp"] is False and load["par"] is True
