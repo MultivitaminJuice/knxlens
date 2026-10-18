@@ -129,6 +129,17 @@ export interface VersionDiff {
   lines: { added: string[]; removed: string[] }; spaces_changed: string[]
 }
 
+export interface DeviceCheck {
+  read: boolean; last_read?: number; param_equal: number; param_diff: number
+  diffs?: { segment: string; offset: number; device: number; computed: number; params: string[] }[]
+  address_table: boolean | null; association_table: boolean | null
+  object_table: [number, number] | null; ets_image: [number, number] | null
+}
+export interface DevicePlan {
+  kind: string; total: number
+  steps: { op: string; text: string; writes: boolean; size: number; address: number | null; blocks: number }[]
+}
+
 export interface Orphan { ref: string; number: number; text: string; gas: string[] }
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -174,6 +185,9 @@ export const api = {
   addVersion: (comment: string) => send<{ id: number }>('POST', '/api/versions', { comment }),
   versionDiff: (id: number) => get<VersionDiff>(`/api/versions/${id}/diff`),
   restoreVersion: (id: number) => send<ProjectInfo>('POST', `/api/versions/${id}/restore`),
+  deviceCheck: (uid: string) => get<DeviceCheck>(`/api/device/${encodeURIComponent(uid)}/check`),
+  devicePlan: (uid: string, kind: string) => get<DevicePlan>(`/api/device/${encodeURIComponent(uid)}/plan?kind=${kind}`),
+  deviceRead: (uid: string, gateway: string) => send<DeviceCheck>('POST', `/api/device/${encodeURIComponent(uid)}/read`, { gateway }),
   orphans: () => get<{ uid: string; pa: string | null; name: string; orphans: Orphan[] }[]>('/api/orphans'),
   unlinkOrphans: (uids: string[] | null) => send<{ unlinked: number }>('POST', '/api/orphans/unlink', { uids }),
   save: () => send<{ saved: string }>('POST', '/api/project/save'),

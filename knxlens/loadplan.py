@@ -30,6 +30,24 @@ class Step:
     address: int | None = None  # Schreibschritte: Zieladresse (absolut) bzw. Offset (relativ)
     data: bytes | None = None  # Schreibschritte: die zu schreibenden Bytes
     writes: bool = False  # verändert das Gerät?
+    chunks: list[tuple[int, bytes]] = field(default_factory=list)  # (Offset ab address, Bytes) – was wirklich geschrieben wird
+
+    @property
+    def size(self) -> int:
+        return sum(len(b) for _, b in self.chunks) if self.chunks else len(self.data or b"")
+
+
+def runs(data: bytes, defined) -> list[tuple[int, bytes]]:
+    """Zusammenhängende Blöcke der Bytes, für die defined(i) gilt."""
+    out, start = [], None
+    for i in range(len(data) + 1):
+        ok = i < len(data) and defined(i)
+        if ok and start is None:
+            start = i
+        elif not ok and start is not None:
+            out.append((start, data[start:i]))
+            start = None
+    return out
 
 
 def _steps_of(el, applies: tuple[str, ...]):
@@ -77,13 +95,14 @@ def raw_steps(app_xml: bytes, master_xml: bytes | None, mask: str, kind: str = "
 
 
 def build(steps: list[tuple[str, dict]], segments: dict[int, bytes], tables: dict[int, bytes],
-          rel_images: dict[int, bytes]) -> list[Step]:
+          rel_images: dict[int, bytes], masks: dict | None = None) -> list[Step]:
     """Schritte mit Beschreibung und Daten versehen.
 
     segments: Startadresse → Bytes der absoluten Segmente (Parameter, Objekttabelle, Code-Bild)
     tables: Load State Machine/Objektindex → Tabelle (1 Adress-, 2 Assoziations-, 3 Objekttabelle)
     rel_images: Objektindex → Abbild relativer Segmente (System B, z. B. 4 = Parameter)
     """
+    masks = masks or {}  # ("abs", Adresse) / ("rel", Objektindex) → defined(i)
     out: list[Step] = []
     for name, a in steps:
         lsm = int(a.get("LsmIdx", a.get("ObjIdx", "0")) or 0)
@@ -103,9 +122,11 @@ def build(steps: list[tuple[str, dict]], segments: dict[int, bytes], tables: dic
         elif name == "AbsSegment":
             addr, size = int(a["Address"]), int(a["Size"])
             data = segments.get(addr) if lsm not in (1, 2) else tables.get(lsm)
+            data = data[:size] if data is not None else None
+            chunks = runs(data, masks.get(("abs", addr), lambda i: True)) if data else []
             out.append(Step(name, f"{what}: Segment {addr:#06x} ({size} Byte) anlegen"
                                   + (" und beschreiben" if data is not None else " (ohne Inhalt)"), a,
-                            addr, data[:size] if data is not None else None, True))
+                            addr, data, True, chunks))
         elif name == "TaskSegment":
             out.append(Step(name, f"{what}: Startadresse {int(a['Address']):#06x} setzen", a, writes=True))
         elif name == "RelSegment":
@@ -113,8 +134,10 @@ def build(steps: list[tuple[str, dict]], segments: dict[int, bytes], tables: dic
                             writes=True))
         elif name == "WriteRelMem":
             data = tables.get(lsm) if lsm in (1, 2, 3) else rel_images.get(lsm)
-            out.append(Step(name, f"{what}: Inhalt schreiben ({len(data) if data else '?'} Byte)", a,
-                            int(a.get("Offset", "0")), data, True))
+            chunks = runs(data, masks.get(("rel", lsm), lambda i: True)) if data else []
+            step = Step(name, "", a, int(a.get("Offset", "0")), data, True, chunks)
+            step.text = f"{what}: Inhalt schreiben ({step.size} Byte" + (f" in {len(chunks)} Blöcken)" if len(chunks) > 1 else ")")
+            out.append(step)
         elif name == "WriteMem":
             out.append(Step(name, f"Speicher {int(a.get('Address', '0')):#06x} schreiben", a,
                             int(a.get("Address", "0")), bytes.fromhex(a.get("InlineData", "")) or None, True))
@@ -152,14 +175,17 @@ def device_plan(ap, device, master_xml: bytes | None, kind: str = "all", number_
     tabs = {1: t.address_bytes, 2: t.association_bytes}
     segs: dict[int, bytes] = {}
     rel: dict[int, bytes] = {}
+    masks: dict = {}
     for sid, buf in img.segments.items():
         seg = ap.segments[sid]
         if seg.absolute:
             # ohne Standardbild und ohne Parameter (z. B. RAM-Bereich): nur anlegen, nichts schreiben
             if seg.data or any(sg == sid for sg, _ in img.touched):
                 segs[seg.address] = bytes(buf)
+                masks[("abs", seg.address)] = lambda i, sid=sid: img.defined(sid, i, ap)
         elif seg.lsm is not None:
             rel[seg.lsm] = bytes(buf)
+            masks[("rel", seg.lsm)] = lambda i, sid=sid: img.defined(sid, i, ap)
     if mask == SYSTEM_B:
         tabs[3] = object_table_b(ap, ev, linked)
     else:
@@ -170,5 +196,7 @@ def device_plan(ap, device, master_xml: bytes | None, kind: str = "all", number_
             buf = bytearray(segs.get(seg.address, seg.data))
             buf[off:off + len(data)] = data
             segs[seg.address] = bytes(buf)
+            old = masks.get(("abs", seg.address), lambda i: False)
+            masks[("abs", seg.address)] = lambda i, old=old, off=off, n=len(data): off <= i < off + n or old(i)
     steps = raw_steps(_read_member(ap.app.source_path, ap.app.member), master_xml, mask_text, kind)
-    return build(steps, segs, tabs, rel)
+    return build(steps, segs, tabs, rel, masks)

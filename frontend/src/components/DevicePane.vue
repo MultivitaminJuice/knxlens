@@ -4,6 +4,7 @@
 import { computed, ref, watch } from 'vue'
 import { NTabPane, NTabs } from 'naive-ui'
 import ParamEditor from './ParamEditor.vue'
+import DownloadTab from './DownloadTab.vue'
 import { api, type DeviceDetail, type DeviceObject } from '../api'
 import { dropAction, run, select, store, type Item } from '../store'
 
@@ -18,7 +19,7 @@ const loadTooltip = computed(() => detail.value
   : '')
 const uid = ref<string | null>(null)
 const detail = ref<DeviceDetail | null>(null)
-const tab = ref<'objects' | 'params'>('objects')
+const tab = ref<'objects' | 'params' | 'download'>('objects')
 const filter = ref('')
 
 watch(() => store.selection, (sel) => {
@@ -109,6 +110,9 @@ function unlink(o: DeviceObject, address: string) {
       </NTabPane>
       <NTabPane name="params" tab="Parameter">
         <ParamEditor :uid="uid" embedded />
+      </NTabPane>
+      <NTabPane name="download" tab="Download">
+        <DownloadTab :uid="uid" />
       </NTabPane>
     </NTabs>
   </section>

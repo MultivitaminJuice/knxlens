@@ -143,7 +143,8 @@ def cmd_edit(args: argparse.Namespace) -> None:
     if args.host not in ("127.0.0.1", "localhost"):
         print(f"Achtung: Editor ohne Anmeldung unter {args.host}:{args.port} erreichbar.")
     print(f"Projekt {args.project}: Produktdaten werden geladen …", flush=True)
-    app = create_editor_app(args.project, gateway=args.gateway or "")
+    db = args.db if args.db != DEFAULT_DB else None  # ohne --db: Messdatenbank beim Projekt suchen
+    app = create_editor_app(args.project, gateway=args.gateway or "", db=db)
     print(f"Editor: http://{args.host}:{args.port}", flush=True)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
@@ -208,10 +209,10 @@ def cmd_plan(args: argparse.Namespace) -> None:
         raise SystemExit("Keine Produktdaten zu diesem Gerät")
     steps = device_plan(AppParams(app), d, p.products.get("knx_master.xml"), args.kind,
                         lambda l: object_number(app, l.ref))
-    total = sum(len(s.data) for s in steps if s.data and s.writes)
+    total = sum(s.size for s in steps if s.data and s.writes)
     print(f"{d.pa} {d.name or app.name} – Download „{args.kind}“: {len(steps)} Schritte, {total} Byte zu schreiben")
     for i, s in enumerate(steps, 1):
-        extra = f"  [{len(s.data)} Byte]" if s.data else ""
+        extra = f"  [{s.size} Byte]" if s.data else ""
         print(f"{i:3}. {'✎' if s.writes else ' '} {s.text}{extra}")
         if args.bytes and s.data:
             print("       " + s.data[:48].hex(" ") + (" …" if len(s.data) > 48 else ""))
