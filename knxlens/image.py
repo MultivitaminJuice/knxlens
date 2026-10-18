@@ -245,6 +245,8 @@ class Check:
     pa: str
     param_equal: int = 0
     param_diff: list[tuple[str, int, int, int, list[str]]] = field(default_factory=list)  # (Segment, Offset, Gerät, berechnet, Parameter)
+    object_table: tuple[int, int] | None = None  # Gruppenobjekttabelle (gleich, gelesen)
+    object_table_diff: list[tuple[int, int, int]] = field(default_factory=list)  # (Offset, Gerät, berechnet)
     ets_equal: int = 0  # Vergleich mit dem ETS-Ladeabbild im Projekt (falls vorhanden)
     ets_diff: list[tuple[str, int, int, int, list[str]]] = field(default_factory=list)
     address_table: bool | None = None  # None = nicht lesbar
@@ -311,6 +313,23 @@ def check_against_store(ap: AppParams | None, device, store, mask: int | None, n
                     owners = [f"{w.text.strip() or '(versteckt)'} [{w.instance_id.rsplit('_', 2)[-2]}]" for w in img.owner(sid, off)]
                     c.param_diff.append((sid, off, mem[base + off], buf[off], owners))
 
+    if ap is not None and ap.co_table:
+        ev = ap.evaluate_values(device.params)
+        linked = set()
+        for link in device.links:
+            n = link.number if link.number is not None else (number_of(link) if number_of else None)
+            if n is not None and link.gas:
+                linked.add(n)
+        ot = object_table(ap, ev, linked)
+        if ot is not None:
+            seg_id, off, data = ot
+            base = ap.segments[seg_id].address + off
+            known = [i for i in range(len(data)) if base + i in mem]
+            if known:
+                eq = [i for i in known if mem[base + i] == data[i]]
+                c.object_table = (len(eq), len(known))
+                c.object_table_diff = [(i, mem[base + i], data[i]) for i in known if mem[base + i] != data[i]]
+
     if mask is not None and mask not in (0x0010, 0x0011, 0x0012, 0x0013):
         active = set(ap.evaluate_values(device.params).active_cos) if ap is not None else None
         t = tables(device, mask, number_of, active)
@@ -324,3 +343,49 @@ def check_against_store(ap: AppParams | None, device, store, mask: int | None, n
         if s is not None:
             c.association_table = len(s).to_bytes(head, "big") + b"".join(s) == t.association_bytes
     return c
+
+
+# --- Gruppenobjekttabelle System 7 ------------------------------------------------------------
+
+SIZE_CODE = {"1 Bit": 0, "2 Bit": 1, "3 Bit": 2, "4 Bit": 3, "5 Bit": 4, "6 Bit": 5, "7 Bit": 6, "1 Byte": 7,
+             "2 Bytes": 8, "3 Bytes": 9, "4 Bytes": 10, "6 Bytes": 11, "8 Bytes": 12, "10 Bytes": 13, "14 Bytes": 14}
+PRIORITY_CODE = {"System": 0, "High": 1, "Alert": 2, "Low": 3}
+
+
+def object_table(ap: AppParams, ev, linked: set[int]) -> tuple[str, int, bytes] | None:
+    """Gruppenobjekttabelle (System 7) aus der Vorlage im Code-Segment → (Segment, Offset, Bytes).
+
+    Aufbau: Anzahl (1 Byte), Zeiger RAM-Flags (2), je Objekt Wertzeiger (2), Konfiguration (1),
+    Typ (1). Regeln, an 36 Geräten der Testanlage geprüft (`knxlens image`):
+    - Anzahl = höchste Objektnummer der Applikation + 1 (höchstens 255), Zeiger aus der Vorlage
+    - Wertzeiger immer aus der Vorlage
+    - aktives Objekt: Typ = Größe der aktiven Variante; Konfiguration = Flags der Variante
+      (Aktualisieren 0x80, Übertragen 0x40, Schreiben 0x10, Lesen 0x08), Bit 0x20 aus der Vorlage,
+      Priorität (Bit 0–1) aus der Variante, Kommunikation (0x04) nur wenn mit einer GA verknüpft
+    - inaktives Objekt: Vorlage ohne Kommunikations-Bit
+    Bekannte Ausnahme: Theben 1.1.152 lässt das Kommunikations-Bit unverknüpfter Objekte stehen.
+    """
+    if not ap.co_table:
+        return None
+    seg_id, off = ap.co_table
+    seg = ap.segments.get(seg_id)
+    if seg is None or len(seg.data) < off + 3:
+        return None
+    tpl = seg.data[off:]
+    numbers = set(ap.app.ref_number.values()) | {n for n, base in ap.co_numbers.values() if not base}
+    count = min(255, max(numbers) + 1) if numbers else tpl[0]
+    out = bytearray([count]) + bytearray(tpl[1:3])
+    for i in range(count):
+        entry = bytearray(tpl[3 + 4 * i:7 + 4 * i].ljust(4, b"\x00"))
+        key = ev.active_cos.get(i)
+        v = ap.app.variant_by_ref.get(key) if key else None
+        if v is not None:
+            f = v.flags
+            entry[2] = ((entry[2] & 0x20) | (0x80 if f.get("update") else 0) | (0x40 if f.get("transmit") else 0)
+                        | (0x10 if f.get("write") else 0) | (0x08 if f.get("read") else 0)
+                        | (0x04 if i in linked else 0) | PRIORITY_CODE.get(v.priority, 3))
+            entry[3] = SIZE_CODE.get(v.size or "", entry[3])
+        else:
+            entry[2] &= ~0x04
+        out += entry
+    return seg_id, off, bytes(out)

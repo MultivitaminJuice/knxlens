@@ -110,3 +110,24 @@ def test_values_belong_to_the_ref(tmp_path):
     assert img.segments[SEG][4] == 0
     img = param_image(ap, {f"{APP}_P-3_R-3": "-2"})
     assert img.segments[SEG][4] == 0xFE
+
+
+def test_object_table_system7():
+    from types import SimpleNamespace
+    from knxlens.image import object_table
+    from knxlens.params import Segment
+    full = "M-0083_A-0001-01-AAAA"
+    tpl = bytes([5, 0x07, 0x00]) + b"".join(bytes([0x07, i, 0x17, 0x07]) for i in range(5))
+    v_on = SimpleNamespace(flags={"communication": True, "transmit": True, "read": True}, priority="High", size="1 Bit")
+    app = SimpleNamespace(full_id=full, ref_number={f"{full}_O-0_R-1": 0, f"{full}_O-2_R-2": 2},
+                          variant_by_ref={f"{full}_O-0_R-1": v_on, f"{full}_O-2_R-2": v_on})
+    ap = SimpleNamespace(app=app, co_table=("SEG", 0), segments={"SEG": Segment("SEG", True, 0x4400, None, len(tpl), tpl)},
+                         co_numbers={"x": (2, None)})
+    ev = SimpleNamespace(active_cos={0: f"{full}_O-0_R-1", 2: f"{full}_O-2_R-2"})
+    seg, off, data = object_table(ap, ev, linked={0})
+    assert data[0] == 3  # höchste Objektnummer + 1, nicht die Vorlage (5)
+    assert data[1:3] == b"\x07\x00"
+    e0, e1, e2 = data[3:7], data[7:11], data[11:15]
+    assert e0 == bytes([0x07, 0, 0x40 | 0x08 | 0x04 | 1, 0])  # aktiv, verknüpft, Priorität hoch, 1 Bit
+    assert e1 == bytes([0x07, 1, 0x13, 0x07])  # inaktiv: Vorlage ohne Kommunikations-Bit
+    assert e2[2] == 0x40 | 0x08 | 1  # aktiv, aber nicht verknüpft: ohne Kommunikations-Bit

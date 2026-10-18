@@ -176,6 +176,11 @@ def cmd_image(args: argparse.Namespace) -> None:
                 tables_all += 1
                 tables_ok += ok
                 flags.append(f"{name} {'=' if ok else '≠'}")
+        if c.object_table:
+            eq, n = c.object_table
+            tables_all += 1
+            tables_ok += eq == n
+            flags.append(f"Objekttabelle {'=' if eq == n else f'{n - eq} Byte ≠'}")
         if c.ets_equal or c.ets_diff:
             flags.append(f"ETS-Abbild {c.ets_equal}/{c.ets_equal + len(c.ets_diff)} gleich")
         print(f"{d.pa:10} Parameterbytes {c.param_equal:5} gleich, {len(c.param_diff):4} abweichend  {'  '.join(flags)}")

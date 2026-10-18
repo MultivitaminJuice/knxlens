@@ -152,6 +152,9 @@ class AppParams:
         # Parameter, die irgendwo im Dynamic-Teil angezeigt werden (auch in Moduldefinitionen)
         self.shown_params = {self.refs[el.get("RefId")].param.id for el in self.prog.iter()
                              if _local(el.tag) == "ParameterRefRef" and el.get("RefId") in self.refs}
+        # Lage der Gruppenobjekttabelle (System 7: im Code-Segment, z. B. AS-4400) – (Segment-Id, Offset)
+        cot = next(_children(self.prog, "ComObjectTable"), None)
+        self.co_table = (cot.get("CodeSegment"), int(cot.get("Offset", "0"))) if cot is not None and cot.get("CodeSegment") else None
         # Füllwert relativer Segmente aus der Ladeprozedur (LdCtrlRelSegment Fill), je Load State Machine
         self.rel_fill: dict[int, int] = {}
         for el in self.prog.iter():

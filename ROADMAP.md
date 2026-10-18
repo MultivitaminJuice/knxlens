@@ -165,8 +165,13 @@ irgendetwas geschrieben wird.
 - Rest 99 Bytes: 1.1.229 (73, ungeklärt), 1.1.231 (8, von der ETS nicht geschriebene Bytes),
   Laufzeit-Kennzeichen der Geräte (Steinel, Theben, Gira, MDT Teach-in), MDT „Szenen
   überschreiben“ 1.1.13/14, je 1 Byte ohne Parameter bei den LED-Controllern.
-- Offen in E3: Gruppenobjekttabelle System 7 (Beispiele jetzt aus den ETS-Abbildern von 1.1.152
-  und 1.1.161), Gerät 1.1.229 (73 Bytes ohne Erklärung, relatives Segment), PIR 1.1.231 (8),
+- **Gruppenobjekttabelle System 7** (image.object_table): an allen 36 System-7-Geräten gelesen
+  (nur MemoryRead) und verglichen – **32/36 byte-genau**. Regeln: Anzahl = höchste Objektnummer
+  + 1, Zeiger aus der Vorlage im Code-Segment, aktive Objekte bekommen Größe/Flags/Priorität
+  ihrer Variante, Kommunikations-Bit nur bei Verknüpfung, inaktive Vorlage ohne Kommunikation.
+  Offen: Steinel 1.1.111/121/131 behalten Anzahl der Vorlage (vermutlich älterer Download),
+  Theben 1.1.152 lässt das Kommunikations-Bit unverknüpfter Objekte stehen.
+- Offen in E3: Gerät 1.1.229 (73 Bytes ohne Erklärung, relatives Segment), PIR 1.1.231 (8),
   je 1 Byte ohne Parameter bei den LED-Controllern 1.1.239/249/254, Gruppenobjekttabelle
   (System B), Property-Parameter, BCU1-Speicherkarte, `ParameterCalculation`, Ladeablauf
   (LdCtrl-Folge) als ausführbarer Plan für E4.
