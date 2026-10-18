@@ -149,3 +149,28 @@ def _merge_el(a, b) -> bool:
             index[k] = c
             changed = True
     return changed
+
+
+def product_texts(p: Project, lang: str = "de-DE") -> dict[str, str]:
+    """Produkt-Id → Name aus den Hardware.xml-Dateien (auch ohne Applikation; deutsch bevorzugt)."""
+    out: dict[str, str] = {}
+    for name, data in p.products.items():
+        if not name.endswith("/Hardware.xml"):
+            continue
+        try:
+            root = ET.fromstring(data)
+        except Exception:  # noqa: BLE001 - kaputte Datei: Namen fehlen eben
+            continue
+        tr: dict[str, str] = {}
+        for el in root.iter():
+            tag = el.tag.rsplit("}", 1)[-1]
+            if tag == "Language" and el.get("Identifier") == lang:
+                for te in el.iter():
+                    if te.tag.endswith("TranslationElement"):
+                        for t in te:
+                            if t.get("AttributeName") == "Text":
+                                tr[te.get("RefId")] = t.get("Text", "")
+        for el in root.iter():
+            if el.tag.endswith("}Product") and el.get("Id"):
+                out[el.get("Id")] = tr.get(el.get("Id")) or el.get("Text", "")
+    return out

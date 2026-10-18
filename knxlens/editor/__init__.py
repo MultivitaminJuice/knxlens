@@ -25,7 +25,7 @@ from ..project.reconstruct import catalog_key as _catalog_key, rel_ref
 from ..project.ops import ga_raw as GroupAddressRaw
 from ..traffic import format_value
 from .busmon import SERVICES, BusMonitor
-from ..project.products import MAX_PRODUCT_FILE, ProductError, add_products, app_for, project_catalog
+from ..project.products import MAX_PRODUCT_FILE, ProductError, add_products, app_for, product_texts, project_catalog
 
 STATIC = Path(__file__).parent.parent / "web" / "static" / "editor"
 MEDIUM = MEDIA
@@ -39,6 +39,7 @@ class EditorState:
     ops: Editor | None = None
     _catalog: Catalog | None = None
     _app_params: dict[str, params.AppParams] = field(default_factory=dict)
+    _product_texts: dict[str, str] | None = None
 
     @property
     def catalog(self) -> Catalog:
@@ -60,6 +61,7 @@ class EditorState:
         self.ops = Editor(project)
         self._catalog = None
         self._app_params.clear()
+        self._product_texts = None
         _remember(path)
 
     def device(self, uid: str) -> Device:
@@ -71,7 +73,9 @@ class EditorState:
     def product_name(self, d: Device) -> str:
         app = self.app(d)
         if app is None:
-            return d.product_ref
+            if self._product_texts is None:
+                self._product_texts = product_texts(self.project)
+            return self._product_texts.get(d.product_ref) or f"Unbekanntes Produkt ({d.product_ref[:6]})"
         for (pid, _), (name, order) in zip(app.product_refs, app.products):
             if pid == d.product_ref:
                 return name
@@ -318,7 +322,7 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
             })
         # Suchordner wie in der ETS: Geräte, bei denen noch etwas zu laden ist
         pending = [d for d in p.devices if needs_download(d)]
-        folder = {"key": "need", "label": "Programmieren notwendig", "data": {"type": "folder", "count": len(pending)},
+        folder = {"key": "need", "label": "Suchordner: Programmieren notwendig", "data": {"type": "folder", "count": len(pending)},
                   "children": [{"key": f"need/{d.uid}", "label": f"{d.pa or '–'} {d.name or state.product_name(d)}",
                                 "leaf": True, "data": {"type": "device", "uid": d.uid, "pa": d.pa, "load": load_state(d)}}
                                for d in sorted(pending, key=lambda d: (d.area, d.line, d.address or 0))]}
@@ -505,6 +509,7 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
             raise HTTPException(422, str(e)) from None
         state._catalog = None  # beim nächsten Zugriff mit den neuen Produkten aufbauen
         state._app_params.clear()
+        state._product_texts = None
         _ = state.catalog
         state.dirty = True
         return result

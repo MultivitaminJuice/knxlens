@@ -7,6 +7,7 @@ import { DockviewVue, themeGithubDark, themeGithubLight, type DockviewApi, type 
 import 'dockview-vue/dist/styles/dockview.css'
 import DockPane from './DockPane.vue'
 import HeaderActions from './HeaderActions.vue'
+import ViewTab from './ViewTab.vue'
 import ParamDialog from './ParamDialog.vue'
 import CommandPalette from './CommandPalette.vue'
 import ProjectMenu from './ProjectMenu.vue'
@@ -43,6 +44,15 @@ const dockTheme = computed(() => (os.value === 'dark' ? themeGithubDark : themeG
 // dockview erwartet einen allgemeinen Komponententyp; DockPane hat typisierte Props (gleich zur Laufzeit)
 const components = { pane: markRaw(DockPane) as never }
 const headerActions = markRaw(HeaderActions) as never
+const viewTab = markRaw(ViewTab) as never
+const LOCK_KEY = 'knxlens:layout-locked'
+const locked = ref(false)
+try { locked.value = localStorage.getItem(LOCK_KEY) === '1' } catch { /* egal */ }
+function toggleLock() {
+  locked.value = !locked.value
+  try { localStorage.setItem(LOCK_KEY, locked.value ? '1' : '0') } catch { /* egal */ }
+  store.notify('info', locked.value ? 'Anordnung gesperrt – Fenster lassen sich nicht mehr verschieben' : 'Anordnung entsperrt')
+}
 
 const api = shallowRef<DockviewApi | null>(null)
 const palette = ref(false)
@@ -59,9 +69,33 @@ function nextId(kind: View) {
   return id
 }
 
+// Feste Plätze: wohin ein neu geöffnetes Fenster kommt (relativ zu dem, was schon offen ist)
+function home(kind: View): Record<string, unknown> | undefined {
+  const a = api.value
+  const panelOf = (k: View) => a?.panels.find((p) => (p.params as { kind?: View } | undefined)?.kind === k)
+  const tree = panelOf('topology') ?? panelOf('groupaddresses') ?? panelOf('buildings')
+  switch (kind) {
+    case 'buildings':
+    case 'catalog': return tree ? { referencePanel: tree.id } : undefined // als Reiter neben dem Baum
+    case 'groupaddresses': return panelOf('topology') ? { referencePanel: panelOf('topology')!.id, direction: 'below' } : undefined
+    case 'topology': return panelOf('groupaddresses') ? { referencePanel: panelOf('groupaddresses')!.id, direction: 'above' } : undefined
+    case 'device': return tree ? { referencePanel: tree.id, direction: 'right' } : { direction: 'right' }
+    case 'gadetail': return panelOf('device') ? { referencePanel: panelOf('device')!.id, direction: 'below' } : { direction: 'right' }
+    case 'inspector': return { direction: 'right' }
+    case 'monitor': return { direction: 'below' }
+  }
+}
+
 function addView(kind: View, position?: Record<string, unknown>) {
   const a = api.value
   if (!a) return
+  // jede Ansicht nur einmal: vorhandenes Fenster nach vorn holen
+  const existing = a.panels.find((p) => (p.params as { kind?: View } | undefined)?.kind === kind)
+  if (existing) {
+    existing.api.setActive()
+    return existing
+  }
+  position = position ?? home(kind)
   return a.addPanel({
     id: nextId(kind), component: 'pane', title: VIEW_TITLES[kind], params: { kind },
     ...(position ? { position: position as never } : {}),
@@ -124,10 +158,13 @@ const viewMenu = computed<DropdownOption[]>(() => [
   { type: 'group', label: 'Fenster öffnen', key: 'g1', children: (Object.keys(VIEW_TITLES) as View[]).map((k) => ({ label: VIEW_TITLES[k], key: `add:${k}` })) },
   { type: 'divider', key: 'd1' },
   { type: 'group', label: 'Anordnung', key: 'g2', children: Object.entries(PRESETS).map(([k, p]) => ({ label: p.label, key: `preset:${k}` })) },
+  { type: 'divider', key: 'd2' },
+  { label: locked.value ? '✓ Anordnung gesperrt' : 'Anordnung sperren', key: 'lock:1' },
 ])
 function onViewMenu(key: string) {
   const [kind, value] = key.split(':')
-  if (kind === 'add') addView(value as View, { direction: 'right' })
+  if (kind === 'add') addView(value as View)
+  if (kind === 'lock') toggleLock()
   if (kind === 'preset') applyPreset(value)
 }
 
@@ -157,7 +194,7 @@ async function reveal(kind: TreeKind, key: string) {
   // passendes offenes Fenster nehmen, sonst eines öffnen
   let entry = [...panes.entries()].find(([, h]) => h.kind === kind)
   if (!entry) {
-    addView(kind, { direction: 'right' })
+    addView(kind)
     await new Promise((r) => setTimeout(r, 60))
     entry = [...panes.entries()].find(([, h]) => h.kind === kind)
   }
@@ -198,19 +235,20 @@ onBeforeUnmount(() => {
   <div class="shell">
     <header class="bar">
       <strong class="brand">knxlens</strong>
-      <span v-if="store.project" class="proj">{{ store.project.name }}</span>
-      <span v-if="store.project" class="muted stats">{{ store.project.devices }} Geräte · {{ store.project.group_addresses }} GAs · {{ store.project.links }} Verknüpfungen</span>
-      <span class="spacer" />
-      <button v-if="store.project?.orphans" class="orph" title="Gruppenadressen an Objekten, die es bei den aktuellen Parametern nicht gibt" @click="showOrphans">
-        ⚠ {{ store.project.orphans }} verwaist
-      </button>
-      <button class="search" @click="palette = true">Suchen &amp; Befehle <kbd>⌘K</kbd></button>
       <ProjectMenu />
       <NDropdown trigger="click" :options="viewMenu" size="small" @select="onViewMenu">
         <NButton size="small" quaternary>Ansicht ▾</NButton>
       </NDropdown>
       <NButton size="small" quaternary :disabled="!store.project?.undo" :title="store.project?.undo ? `Rückgängig: ${store.project.undo} (⌘Z)` : 'Nichts rückgängig zu machen'" @click="undo">↶</NButton>
       <NButton size="small" quaternary :disabled="!store.project?.redo" :title="store.project?.redo ? `Wiederholen: ${store.project.redo} (⇧⌘Z)` : 'Nichts zu wiederholen'" @click="redo">↷</NButton>
+      <span class="sep" />
+      <span v-if="store.project" class="proj">{{ store.project.name }}</span>
+      <span v-if="store.project" class="muted stats">{{ store.project.devices }} Geräte · {{ store.project.group_addresses }} GAs · {{ store.project.links }} Verknüpfungen</span>
+      <span class="spacer" />
+      <button v-if="store.project?.orphans" class="orph" title="Gruppenadressen an Objekten, die es bei den aktuellen Parametern nicht gibt" @click="showOrphans">
+        ⚠ {{ store.project.orphans }} verwaist
+      </button>
+      <button class="search" title="Suchen & Befehle (⌘K)" @click="palette = true"><span class="lbl">Suchen &amp; Befehle</span> <kbd>⌘K</kbd></button>
       <NButton size="small" :type="store.project?.dirty ? 'primary' : 'default'" :disabled="!store.project?.dirty" @click="save" title="Speichern (⌘S)">
         {{ store.project?.dirty ? 'Speichern' : 'Gespeichert' }}
       </NButton>
@@ -219,7 +257,8 @@ onBeforeUnmount(() => {
     <!-- Container gibt die Größe vor: dockview hat keine einzelne Wurzel, Scoped-Styles greifen dort nicht -->
     <div class="dock">
       <DockviewVue style="height: 100%; width: 100%" :theme="dockTheme" :components="components"
-                   :right-header-actions-component="headerActions" @ready="onReady" />
+                   :right-header-actions-component="headerActions" :default-tab-component="viewTab"
+                   :disable-dnd="locked" @ready="onReady" />
     </div>
     <ParamDialog />
     <CommandPalette v-model:show="palette" @reveal="reveal" />
@@ -234,7 +273,10 @@ onBeforeUnmount(() => {
 .proj { font-weight: 600; flex: 0 1 auto !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stats { font-size: 12px; flex: 0 1 auto !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 900px) { .stats { display: none; } }
+@media (max-width: 1000px) { .search { width: auto; flex: none !important; } .search .lbl { display: none; } }
+.search .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spacer { flex: 1 1 0 !important; }
+.sep { width: 1px; height: 18px; background: var(--kl-border); margin: 0 4px; }
 .orph { font: inherit; font-size: 12px; border: 1px solid #f0c9a4; background: #fdf0e6; color: #8a4b0f; border-radius: 6px; padding: 3px 8px; cursor: pointer; }
 .search { font: inherit; font-size: 12px; color: var(--kl-muted); background: var(--kl-bg); border: 1px solid var(--kl-border); border-radius: 6px; padding: 4px 8px 4px 10px; cursor: pointer; display: flex; gap: 10px; align-items: center; min-width: 0; width: 220px; flex: 0 1 220px !important; justify-content: space-between; }
 kbd { font-family: var(--kl-mono); font-size: 11px; background: var(--kl-hover); border-radius: 4px; padding: 0 4px; }

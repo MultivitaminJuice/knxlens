@@ -662,7 +662,8 @@ def load_state(d: Device) -> dict[str, bool]:
 
 
 def needs_download(d: Device) -> bool:
-    return not all(load_state(d).values())
+    """Wie die ETS: Geräte ohne Applikation (z. B. Netzteile) werden nie programmiert."""
+    return bool(d.app_id) and not all(load_state(d).values())
 
 
 def _unset(d: Device, *keys: str) -> None:
