@@ -134,6 +134,7 @@ export interface DeviceCheck {
   diffs?: { segment: string; offset: number; device: number; computed: number; params: string[] }[]
   address_table: boolean | null; association_table: boolean | null
   object_table: [number, number] | null; ets_image: [number, number] | null
+  simulation?: { equal: number; diff: number; error: string | null }
 }
 export interface DevicePlan {
   kind: string; total: number

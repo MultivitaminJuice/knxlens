@@ -164,7 +164,8 @@ def _write(img: ParamImage, ap: AppParams, p: Param, ctx: Context, value, iid: s
         img.problems.append(f"{text or p.id}: Wert {value!r} nicht kodierbar ({e})")
         return
     if loc.segment is None:
-        buf = img.props.setdefault((loc.obj, loc.pid), bytearray())
+        key = ("type", loc.obj_type) if loc.obj_type is not None else loc.obj
+        buf = img.props.setdefault((key, loc.pid), bytearray())
         put(buf, loc.bit, t.bits, raw)
         img.writes.append(Write(None, loc.bit, t.bits, raw, iid, text, loc.obj, loc.pid))
         return

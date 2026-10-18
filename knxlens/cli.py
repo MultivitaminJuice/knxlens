@@ -218,6 +218,41 @@ def cmd_plan(args: argparse.Namespace) -> None:
             print("       " + s.data[:48].hex(" ") + (" …" if len(s.data) > 48 else ""))
 
 
+def cmd_simulate(args: argparse.Namespace) -> None:
+    """Komplett-Download im Simulator durchspielen und gegen die gelesenen Geräte prüfen."""
+    from .download import DownloadError, simulate_against_store
+    from .loadplan import device_plan
+    from .params import AppParams
+    from .project import Project
+    from .project.products import app_for, project_catalog
+    from .project.reconstruct import object_number
+
+    p = Project.load(args.project)
+    cat = project_catalog(p)
+    store = Store(args.db)
+    master = p.products.get("knx_master.xml")
+    total_eq = total_ne = ok = failed = 0
+    for d in p.devices:
+        if d.pa is None or (args.pa and d.pa not in args.pa):
+            continue
+        app = app_for(cat, d.app_id)
+        if app is None:
+            continue
+        steps = device_plan(AppParams(app), d, master, args.kind, lambda l, a=app: object_number(a, l.ref))
+        try:
+            res, eq, ne = simulate_against_store(steps, store, d.pa)
+        except DownloadError as e:
+            print(f"{d.pa:10} ABBRUCH: {e}")
+            failed += 1
+            continue
+        ok += 1
+        total_eq += eq
+        total_ne += ne
+        print(f"{d.pa:10} {res.steps:3} Schritte, {res.bytes_written:5} Byte in {res.writes:4} Schreibbefehlen"
+              f" | gegen Gerät: {eq} gleich, {ne} abweichend")
+    print(f"\nGesamt: {ok} Geräte simuliert, {failed} abgebrochen; {total_eq} Byte gleich, {total_ne} abweichend")
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -297,6 +332,12 @@ def main() -> None:
     s.add_argument("--kind", default="all", choices=["all", "par", "grp"], help="Art des Downloads")
     s.add_argument("--bytes", action="store_true", help="Anfang der Daten zeigen")
     s.set_defaults(func=cmd_plan)
+
+    s = sub.add_parser("simulate", help="Download im Simulator durchspielen und gegen gelesene Geräte prüfen")
+    s.add_argument("project", help="Projektdatei *.knxlens")
+    s.add_argument("pa", nargs="*", help="nur diese Geräte")
+    s.add_argument("--kind", default="all", choices=["all", "par", "grp"])
+    s.set_defaults(func=cmd_simulate)
 
     s = sub.add_parser("serve", help="Weboberfläche (nur gespeicherte Daten, kein Buszugriff)")
     s.add_argument("--reference", help="xknxproject-JSON des Referenzprojekts (optional)")

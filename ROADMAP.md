@@ -183,7 +183,13 @@ irgendetwas geschrieben wird.
 - **Ladeablauf** (loadplan.py, `knxlens plan projekt.knxlens PA [--kind all|par|grp] [--bytes]`):
   Schritte aus der Produktdatei (System 7) bzw. Maskenprozedur aus knx_master.xml mit eingesetzten
   MergeId-Bausteinen (System B), Schreibschritte mit den berechneten Bytes. Nur Anzeige.
-- Offen in E3: System-B-Parameter nur mit aktiven Bytes schreiben (ETS-Maske beginnt bei Offset
+- **Download-Ausführung** (download.py) mit Simulator: Plan wird Schritt für Schritt abgearbeitet
+  (Ladezustände, Segmente, Schreiben in 12-Byte-Stücken, Rücklesen, Prüfschritte mit Maske,
+  Abbruch bei falschem Hardwaretyp). `knxlens simulate projekt.knxlens`: **alle 40 Geräte laufen
+  durch, geschriebene Bytes = Gerätespeicher 52 255 / 173** (Rest: bekannte Ausnahmen).
+  Property-Parameter über Objekttyp (Enertex PID 211) eingebaut. Im Editor: Reiter Download mit
+  „Gerät jetzt lesen“, Abgleich, simuliertem Download und Ladeablauf.
+- Erledigt: System-B-Parameter nur mit aktiven Bytes schreiben (ETS-Maske beginnt bei Offset
   0x1a), Property-Parameter, BCU1, ParameterCalculation.
 - Erledigt: Gerät 1.1.229 (73 Bytes ohne Erklärung, relatives Segment), PIR 1.1.231 (8),
   je 1 Byte ohne Parameter bei den LED-Controllern 1.1.239/249/254, Gruppenobjekttabelle

@@ -95,7 +95,7 @@ def raw_steps(app_xml: bytes, master_xml: bytes | None, mask: str, kind: str = "
 
 
 def build(steps: list[tuple[str, dict]], segments: dict[int, bytes], tables: dict[int, bytes],
-          rel_images: dict[int, bytes], masks: dict | None = None) -> list[Step]:
+          rel_images: dict[int, bytes], masks: dict | None = None, props: dict | None = None) -> list[Step]:
     """Schritte mit Beschreibung und Daten versehen.
 
     segments: Startadresse → Bytes der absoluten Segmente (Parameter, Objekttabelle, Code-Bild)
@@ -142,8 +142,13 @@ def build(steps: list[tuple[str, dict]], segments: dict[int, bytes], tables: dic
             out.append(Step(name, f"Speicher {int(a.get('Address', '0')):#06x} schreiben", a,
                             int(a.get("Address", "0")), bytes.fromhex(a.get("InlineData", "")) or None, True))
         elif name == "WriteProp":
-            out.append(Step(name, f"Property {a.get('ObjIdx')}/{a.get('PropId')} schreiben", a,
-                            data=bytes.fromhex(a.get("InlineData", "")), writes=True))
+            # Daten fest (InlineData) oder aus Property-Parametern; Objekt über Index oder Typ
+            obj = ("type", int(a["ObjType"])) if a.get("ObjType") else int(a.get("ObjIdx", "0"))
+            data = bytes.fromhex(a["InlineData"]) if a.get("InlineData") else (props or {}).get((obj, int(a["PropId"])))
+            label = f"Objekttyp {a['ObjType']}" if a.get("ObjType") else f"Objekt {a.get('ObjIdx')}"
+            note = a.get("InternalDescription", "")
+            out.append(Step(name, f"Property {label}/{a.get('PropId')} schreiben" + (f" ({note})" if note else "")
+                            + ("" if data is not None else " – Wert fehlt"), a, data=data, writes=True))
         elif name == "CompareProp":
             out.append(Step(name, f"Prüfen: Property {a.get('ObjIdx')}/{a.get('PropId')} = {a.get('InlineData', '')}", a))
         elif name == "LoadImageProp":
@@ -199,4 +204,4 @@ def device_plan(ap, device, master_xml: bytes | None, kind: str = "all", number_
             old = masks.get(("abs", seg.address), lambda i: False)
             masks[("abs", seg.address)] = lambda i, old=old, off=off, n=len(data): off <= i < off + n or old(i)
     steps = raw_steps(_read_member(ap.app.source_path, ap.app.member), master_xml, mask_text, kind)
-    return build(steps, segs, tabs, rel, masks)
+    return build(steps, segs, tabs, rel, masks, {k: bytes(v) for k, v in img.props.items()})

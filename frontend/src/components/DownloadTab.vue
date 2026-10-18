@@ -76,6 +76,12 @@ function when(ts: number) {
           <tr v-if="check.association_table !== null"><td>Assoziationstabelle</td><td :class="{ bad: !check.association_table }">{{ check.association_table ? 'gleich' : 'abweichend' }}</td></tr>
           <tr v-if="check.object_table"><td>Objekttabelle</td><td :class="{ bad: check.object_table[0] !== check.object_table[1] }">{{ check.object_table[0] }} / {{ check.object_table[1] }} Byte gleich</td></tr>
           <tr v-if="check.ets_image"><td>ETS-Ladeabbild</td><td>{{ check.ets_image[0] }} / {{ check.ets_image[1] }} Byte gleich</td></tr>
+          <tr v-if="check.simulation" title="Komplett-Download im Simulator durchgespielt; geschriebene Bytes gegen den gelesenen Gerätespeicher">
+            <td>Simulierter Download</td>
+            <td :class="{ bad: check.simulation.error || check.simulation.diff }">
+              {{ check.simulation.error ? `Abbruch: ${check.simulation.error}` : `${check.simulation.equal} Byte gleich${check.simulation.diff ? `, ${check.simulation.diff} abweichend` : ''}` }}
+            </td>
+          </tr>
         </table>
         <details v-if="check.diffs?.length" class="diffs">
           <summary>{{ check.diffs.length }} abweichende Bytes</summary>

@@ -294,7 +294,16 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
         if not last:
             return {"read": False}
         c = check_against_store(state.app_params(app_), d, st, _mask(d, app_), lambda l: object_number(app_, l.ref))
-        return {"read": True, "last_read": last, "param_equal": c.param_equal, "param_diff": len(c.param_diff),
+        from ..download import DownloadError, simulate_against_store
+        from ..loadplan import device_plan
+        try:
+            steps = device_plan(state.app_params(app_), d, state.project.products.get("knx_master.xml"), "all",
+                                lambda l: object_number(app_, l.ref))
+            _, sim_eq, sim_ne = simulate_against_store(steps, st, d.pa)
+            simulation = {"equal": sim_eq, "diff": sim_ne, "error": None}
+        except DownloadError as e:
+            simulation = {"equal": 0, "diff": 0, "error": str(e)}
+        return {"read": True, "simulation": simulation, "last_read": last, "param_equal": c.param_equal, "param_diff": len(c.param_diff),
                 "diffs": [{"segment": sid.rsplit("_", 1)[-1], "offset": off, "device": dv, "computed": cv, "params": own[:2]}
                           for sid, off, dv, cv, own in c.param_diff[:30]],
                 "address_table": c.address_table, "association_table": c.association_table,

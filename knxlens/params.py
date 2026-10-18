@@ -60,6 +60,7 @@ class Location:
     base_arg: str | None = None
     obj: int | None = None
     pid: int | None = None
+    obj_type: int | None = None  # Property über den Objekttyp adressiert (z. B. Hersteller-Objekt 50001)
 
 
 @dataclass
@@ -222,6 +223,8 @@ class AppParams:
                     return Location(c.get("CodeSegment"), bit, c.get("BaseOffset"))
                 if tag == "Property":
                     bit = int(c.get("Offset", "0")) * 8 + int(c.get("BitOffset", "0")) + extra_bit
+                    if c.get("ObjectType") and not c.get("ObjectIndex"):
+                        return Location(None, bit, None, None, int(c.get("PropertyId", "0")), int(c.get("ObjectType")))
                     return Location(None, bit, None, int(c.get("ObjectIndex", "0")), int(c.get("PropertyId", "0")))
             return None
 
@@ -245,7 +248,7 @@ class AppParams:
                 loc = None
                 if base is not None:
                     extra = int(p.get("Offset", "0")) * 8 + int(p.get("BitOffset", "0"))
-                    loc = Location(base.segment, base.bit + extra, base.base_arg, base.obj, base.pid)
+                    loc = Location(base.segment, base.bit + extra, base.base_arg, base.obj, base.pid, base.obj_type)
                 add(p, loc, f"U{n}")
 
         refs = {}
@@ -838,7 +841,8 @@ async def read(reader, ap: AppParams) -> dict:
         data = await reader.mem(base + start, length)
         total += length
         summary["segments"][seg_id] = f"{base + start:#06x}: {len(data or b'')}/{length} Byte"
-    for obj, pid in sorted({(p.loc.obj, p.loc.pid) for p in ap.params.values() if p.loc and p.loc.segment is None}):
+    for obj, pid in sorted({(p.loc.obj, p.loc.pid) for p in ap.params.values()
+                            if p.loc and p.loc.segment is None and p.loc.obj is not None}):
         data = await reader.prop(obj, pid)
         summary["properties"].append(f"{obj}/{pid}: {'ok' if data else 'nicht lesbar'}")
     return summary
