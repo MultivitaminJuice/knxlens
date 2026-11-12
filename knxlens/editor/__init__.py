@@ -24,6 +24,8 @@ from ..project.ops import MEDIA, SPACE_CHILDREN, SPACE_TYPES, Editor, OpError, l
 from ..project.reconstruct import catalog_key as _catalog_key, rel_ref
 from ..project.ops import ga_raw as GroupAddressRaw
 from ..traffic import format_value
+from .. import websafety
+from ..websafety import LOOPBACK
 from .busmon import SERVICES, BusMonitor
 from ..project.products import (MAX_PRODUCT_FILE, ProductError, add_products, app_for, manufacturer_names, product_texts,
                                 project_catalog)
@@ -229,7 +231,8 @@ class ReadIn(BaseModel):
     gateway: str = ""
 
 
-def create_editor_app(project_path: str, preload: bool = True, gateway: str = "", db: str | None = None) -> FastAPI:
+def create_editor_app(project_path: str, preload: bool = True, gateway: str = "", db: str | None = None,
+                      hosts: set[str] | None = LOOPBACK) -> FastAPI:
     path = Path(project_path)
     db_path = Path(db) if db else find_store(path)
     state = EditorState(path, Project.load(path))
@@ -251,6 +254,7 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
     app = FastAPI(title="knxlens Editor", docs_url=None, redoc_url=None, lifespan=lifespan)
 
     # --- Download-Vorschau: Plan, Abgleich mit dem Gerät, Gerät lesen (nur lesend) -------------
+    websafety.install(app, hosts)  # nur eigene Seite darf ändern, kein DNS-Rebinding
 
     def _mask(d: Device, app_) -> int | None:
         from ..store import Store

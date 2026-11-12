@@ -28,10 +28,25 @@ read-only. UI and docs are German.*
 | Mitschnitt | `knxlens -g <IP> monitor [--duration s]` | Gruppentelegramme in SQLite |
 | Oberfläche (Rekonstruktion) | `knxlens serve --products <datei>` | Geräte, Parameter, GAs benennen, Live-Verkehr |
 | Editor | `knxlens edit projekt.knxlens` | Projekt im Browser: Topologie, Gebäude, GAs, Objekte, Parameter (im Aufbau) |
+| Speicherabbild prüfen | `knxlens image projekt.knxlens [PA …]` | berechnete Parameter/Tabellen gegen gelesene Geräte |
+| Ladeablauf | `knxlens plan projekt.knxlens PA [--kind all\|par\|grp]` | Download-Schritte mit Bytes (nur Anzeige) |
+| Download simulieren | `knxlens simulate projekt.knxlens` | Komplett-Download im Simulator gegen gelesene Geräte |
+| Regressionsprüfung | `knxlens verify projekt.knxlens [--update]` | Kennzahlen je Gerät gegen Sollwerte, Exit 1 bei Verschlechterung |
 | Inventar | `knxlens report -o inventar.md` | Markdown ohne Referenzprojekt |
 | Projektdatei | `knxlens project import <x.knxproj> -o p.knxlens` / `project reconstruct --products … -o p.knxlens` | Projekt aus ETS bzw. aus der Rekonstruktion |
 | ETS-Export | Oberfläche → *ETS-Import (XML)* | Gruppenadressen-Import für die ETS |
 | `.knxproj` | `knxlens project export p.knxlens -o x.knxproj` | unsigniert, nicht ETS-importierbar |
+
+Regressionsprüfung: `knxlens verify` misst je Gerät, wie gut Berechnung und gelesener
+Gerätespeicher übereinstimmen (Parameterbytes, Tabellen, ETS-Ladeabbild, simulierter Download,
+Leseseite), und vergleicht mit `verify-sollwerte.json` neben der Messdatenbank. Wird ein Gerät
+in einer Kennzahl schlechter, endet der Lauf mit Exit-Code 1 – vor Änderungen an `params.py`,
+`image.py`, `loadplan.py` oder `download.py` laufen lassen. Verbesserungen übernimmt `--update`.
+
+Sicherheit der Oberflächen: `knxlens edit` und `knxlens serve` lauschen auf 127.0.0.1, nehmen
+nur Anfragen an localhost/127.0.0.1/::1 an (Schutz gegen DNS-Rebinding) und weisen ändernde
+Anfragen fremder Webseiten ab (Origin/Sec-Fetch-Site). Weitere Namen, etwa für Zugriff über
+Tailscale, mit `--allow-host NAME` freigeben; eine Anmeldung gibt es nicht.
 
 Unterstützte Geräte: System 7 und System B (Masken 0x07xx) an echten Geräten geprüft;
 BCU1/BCU2 (0x001x/0x002x, z. B. ältere Tastsensoren) nach Spezifikation implementiert,

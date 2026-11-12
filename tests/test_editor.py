@@ -14,7 +14,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(products, "CACHE", tmp_path / "cache")
     p = import_knxproj(make_knxproj(tmp_path / "in.knxproj"))
     p.save(tmp_path / "p.knxlens")
-    return TestClient(create_editor_app(str(tmp_path / "p.knxlens")))
+    return TestClient(create_editor_app(str(tmp_path / "p.knxlens")), base_url="http://127.0.0.1:8770")
 
 
 def test_project_and_trees(client):

@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from xknx.telegram import GroupAddress
 
+from .. import websafety
 from .. import catalog, compare, decode, device, export, params, reference, traffic
 from ..project.knxproj_io import export_knxproj
 from ..project.reconstruct import from_store
@@ -169,10 +170,12 @@ class NoteIn(BaseModel):
     value: str
 
 
-def create_app(db_path: str, ref_path: str | None = None, product_paths: list[str] | None = None) -> FastAPI:
+def create_app(db_path: str, ref_path: str | None = None, product_paths: list[str] | None = None,
+               hosts: set[str] | None = websafety.LOOPBACK) -> FastAPI:
     state = State(db_path, ref_path, list(product_paths or []))
     state.load()
     app = FastAPI(title="knxlens", docs_url=None, redoc_url=None)
+    websafety.install(app, hosts)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.globals.update(

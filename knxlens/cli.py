@@ -140,11 +140,15 @@ def cmd_edit(args: argparse.Namespace) -> None:
 
     if not (STATIC / "index.html").exists():
         raise SystemExit("Editor-Oberfläche nicht gebaut: cd frontend && npm install && npm run build")
+    from .websafety import allowed_hosts
+    hosts = allowed_hosts(args.host, args.allow_host)
     if args.host not in ("127.0.0.1", "localhost"):
         print(f"Achtung: Editor ohne Anmeldung unter {args.host}:{args.port} erreichbar.")
+    if hosts is None:
+        print("Achtung: keine Host-Prüfung – mit --allow-host NAME die erlaubten Namen angeben.")
     print(f"Projekt {args.project}: Produktdaten werden geladen …", flush=True)
     db = args.db if args.db != DEFAULT_DB else None  # ohne --db: Messdatenbank beim Projekt suchen
-    app = create_editor_app(args.project, gateway=args.gateway or "", db=db)
+    app = create_editor_app(args.project, gateway=args.gateway or "", db=db, hosts=hosts)
     print(f"Editor: http://{args.host}:{args.port}", flush=True)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
@@ -253,6 +257,46 @@ def cmd_simulate(args: argparse.Namespace) -> None:
     print(f"\nGesamt: {ok} Geräte simuliert, {failed} abgebrochen; {total_eq} Byte gleich, {total_ne} abweichend")
 
 
+def cmd_verify(args: argparse.Namespace) -> None:
+    """Kennzahlen je Gerät messen und mit den Sollwerten vergleichen; Exit-Code 1 bei Verschlechterung."""
+    import time
+
+    from . import verify
+
+    project = Path(args.project)
+    db = Path(args.db)
+    baseline = Path(args.baseline) if args.baseline else db.with_name("verify-sollwerte.json")
+    t = time.time()
+    new = verify.measure(project, db, args.pa or None)
+    tot = verify.totals(new)
+    print(f"{len(new)} Geräte gemessen in {time.time() - t:.0f} s")
+    for name, v in tot.items():
+        extra = f", {v['errors']} Abbrüche" if v["errors"] else ""
+        print(f"  {name:7} {v['equal']:6} gleich, {v['diff']:5} abweichend{extra}")
+    old = verify.load(baseline)
+    if old is None:
+        verify.save(baseline, new)
+        print(f"Sollwerte neu angelegt: {baseline}")
+        return
+    if args.pa:  # Teilmessung: nur diese Geräte vergleichen
+        old = {pa: m for pa, m in old.items() if pa in new}
+    worse, better = verify.compare(old, new)
+    for line in better:
+        print(f"  besser:     {line}")
+    for line in worse:
+        print(f"  SCHLECHTER: {line}")
+    if worse:
+        print(f"\n{len(worse)} Verschlechterung(en) gegenüber {baseline.name} – Sollwerte bleiben unverändert.")
+        raise SystemExit(1)
+    if better and args.update and not args.pa:
+        verify.save(baseline, new)
+        print(f"Sollwerte aktualisiert ({len(better)} Verbesserung(en)).")
+    elif better:
+        print("Verbesserungen gefunden – mit --update als neue Sollwerte übernehmen.")
+    else:
+        print("Unverändert gegenüber den Sollwerten.")
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -264,7 +308,9 @@ def cmd_serve(args: argparse.Namespace) -> None:
     products = sorted(str(p) for pattern in ("*.knxprod", "*.vd?") for p in folder.glob(pattern)) + (args.products or [])
     if products:
         print(f"Produktdaten: {len(products)} Datei(en)")
-    uvicorn.run(create_app(args.db, args.reference, products), host=args.host, port=args.port, log_level="warning")
+    from .websafety import allowed_hosts
+    app = create_app(args.db, args.reference, products, hosts=allowed_hosts(args.host, args.allow_host))
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 
 def main() -> None:
@@ -323,6 +369,8 @@ def main() -> None:
     s = sub.add_parser("image", help="Download-Abbild berechnen und gegen gelesene Geräte prüfen")
     s.add_argument("project", help="Projektdatei *.knxlens")
     s.add_argument("pa", nargs="*", help="nur diese Geräte")
+    s.add_argument("--allow-host", action="append", default=[], metavar="NAME",
+                   help="weiteren Host-Namen zulassen (z. B. Tailscale-Name), mehrfach möglich")
     s.add_argument("--details", type=int, default=0, help="so viele abweichende Bytes je Gerät zeigen")
     s.set_defaults(func=cmd_image)
 
@@ -345,11 +393,20 @@ def main() -> None:
     s.add_argument("--products-dir", default="data/produkte", help="Ordner, dessen *.knxprod/*.vd? automatisch geladen werden")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8765)
+    s = sub.add_parser("verify", help="Regressionsprüfung: Berechnung gegen gelesene Geräte, Vergleich mit Sollwerten")
+    s.add_argument("project", help="Projektdatei *.knxlens (mit den ETS-Werten der gelesenen Anlage)")
+    s.add_argument("pa", nargs="*", help="nur diese Geräte")
+    s.add_argument("--baseline", help="Sollwert-Datei (Standard: verify-sollwerte.json neben der Datenbank)")
+    s.add_argument("--update", action="store_true", help="Verbesserungen als neue Sollwerte übernehmen")
+    s.set_defaults(func=cmd_verify)
+
     s.set_defaults(func=cmd_serve)
 
     args = p.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
+    s.add_argument("--allow-host", action="append", default=[], metavar="NAME",
+                   help="weiteren Host-Namen zulassen (z. B. Tailscale-Name), mehrfach möglich")
         format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
     )
     if not args.verbose:

@@ -14,7 +14,7 @@ from test_bcu1 import PA, run_read, bcu1_image
 def client(tmp_path):
     store, _, _ = run_read(tmp_path, bcu1_image())
     store.probe(PA, "device", 0x0012, 300)
-    return TestClient(create_app(str(tmp_path / "t.sqlite")))
+    return TestClient(create_app(str(tmp_path / "t.sqlite")), base_url="http://127.0.0.1:8765")
 
 
 def test_pages_render(client):

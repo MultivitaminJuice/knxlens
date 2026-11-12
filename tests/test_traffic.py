@@ -49,7 +49,7 @@ def test_live_api(tmp_path):
     store, _, _ = run_read(tmp_path, bcu1_image())
     store.probe(PA, "device", 0x0012, 300)
     store.add_telegrams([(float(i), PA, "1/0/1", "GroupValueWrite", None, i % 2) for i in range(5)])
-    client = TestClient(create_app(str(tmp_path / "t.sqlite")))
+    client = TestClient(create_app(str(tmp_path / "t.sqlite")), base_url="http://127.0.0.1:8765")
     first = client.get("/api/telegrams").json()["telegrams"]
     assert [t["id"] for t in first] == [5, 4, 3, 2, 1]
     assert first[0]["value"] == "Aus" and first[0]["dpt_source"] == "Vorschlag" and first[0]["src_known"]
