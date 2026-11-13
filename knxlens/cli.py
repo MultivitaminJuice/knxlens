@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
-
 import json
+import logging
 from pathlib import Path
 
 from xknx.telegram import IndividualAddress
@@ -146,10 +145,9 @@ def cmd_edit(args: argparse.Namespace) -> None:
         print(f"Achtung: Editor ohne Anmeldung unter {args.host}:{args.port} erreichbar.")
     if hosts is None:
         print("Achtung: keine Host-Prüfung – mit --allow-host NAME die erlaubten Namen angeben.")
-    print(f"Projekt {args.project}: Produktdaten werden geladen …", flush=True)
     db = args.db if args.db != DEFAULT_DB else None  # ohne --db: Messdatenbank beim Projekt suchen
     app = create_editor_app(args.project, gateway=args.gateway or "", db=db, hosts=hosts)
-    print(f"Editor: http://{args.host}:{args.port}", flush=True)
+    print(f"Editor: http://{args.host}:{args.port} (Produktdaten werden im Hintergrund geladen)", flush=True)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 

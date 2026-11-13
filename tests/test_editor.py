@@ -2,11 +2,11 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from test_project import make_knxproj
 
 from knxlens.editor import create_editor_app
 from knxlens.project import products
 from knxlens.project.knxproj_io import import_knxproj
-from test_project import make_knxproj
 
 
 @pytest.fixture
@@ -84,7 +84,7 @@ def test_topology_buildings_and_products(client, tmp_path):
 
 
 def test_param_change_asks_before_orphaning(client, monkeypatch):
-    from knxlens import editor as ed
+    from knxlens.editor import routes_device as ed
     effect = [{"ref": "O-0_R-1", "number": 0, "text": "Taste 1", "gas": ["1/1/2", "1/1/1"]}]
     monkeypatch.setattr(ed, "param_change_effect", lambda ap, d, i, v: effect)
     monkeypatch.setattr(ed, "set_param", lambda ap, d, i, v: True)
@@ -106,8 +106,7 @@ def test_monitor_rows_decoded(client):
     from xknx.telegram import GroupAddress, IndividualAddress, Telegram
     from xknx.telegram.apci import GroupValueWrite
     app = client.app
-    mon = next(r.endpoint for r in app.routes if getattr(r, "path", "") == "/api/monitor").__closure__
-    monitor = next(c.cell_contents for c in mon if type(c.cell_contents).__name__ == "BusMonitor")
+    monitor = app.state.monitor
     monitor._received(Telegram(GroupAddress("1/1/1"), source_address=IndividualAddress("1.1.5"),
                                payload=GroupValueWrite(DPTBinary(1))))
     monitor._received(Telegram(GroupAddress("1/2/0"), source_address=IndividualAddress("1.1.9"),
@@ -122,7 +121,7 @@ def test_monitor_rows_decoded(client):
 
 
 def test_project_files_new_save_as_versions(client, tmp_path, monkeypatch):
-    from knxlens import editor as ed
+    from knxlens.editor import state as ed
     monkeypatch.setattr(ed, "RECENT", tmp_path / "recent.json")
     assert client.get("/api/files").json()["files"][0]["current"]
     # Version anlegen, ändern, Unterschied, zurückholen
@@ -175,6 +174,7 @@ def test_parallel_commands_are_serialized(client):
 
 def test_shared_connection_reuses_monitor():
     import asyncio
+
     from knxlens.editor import busmon
 
     class Fake:
