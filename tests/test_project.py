@@ -192,3 +192,15 @@ def test_product_cache_prunes_old_folders(tmp_path, monkeypatch):
     os.utime(unfinished, (time.time() - 40 * 86400,) * 2)
     products.project_catalog(Project(name="leer"))  # legt den eigenen Ordner an und räumt auf
     assert not old.exists() and fresh.exists() and unfinished.exists()
+
+
+def test_merge_product_xml_across_schema_versions():
+    from defusedxml import ElementTree as ET
+
+    from knxlens.project.products import _merge_xml
+    old = b'<KNX xmlns="http://knx.org/xml/project/23"><M Id="M-00E1"><H Id="a"/></M></KNX>'
+    new = b'<KNX xmlns="http://knx.org/xml/project/11"><M Id="M-00E1"><H Id="b"/></M></KNX>'
+    root = ET.fromstring(_merge_xml(old, new))
+    ns = "{http://knx.org/xml/project/23}"
+    assert root.tag == ns + "KNX"
+    assert [h.get("Id") for h in root.iter(ns + "H")] == ["a", "b"]  # ein Namensraum, beide Einträge

@@ -82,3 +82,14 @@ def test_load_image_prop_absolute_segments():
     from knxlens.download import crc16_aug
     assert sim.elements[(3, 27, 1)] == (16).to_bytes(4, "big") + b"\x00\xf2" + crc16_aug(bytes(range(16)), 0xFFFF).to_bytes(2, "big")
     assert sim.elements[(3, 27, 2)] == (2).to_bytes(4, "big") + b"\x01\x22\x00\x00"  # ohne Prüfsummen-Flag
+
+
+def test_applies_to_auto_counts_for_every_kind():
+    """Aus ETS3 umgewandelte Applikationen markieren alle Ladeschritte mit AppliesTo="auto"."""
+    from defusedxml import ElementTree as ET
+
+    from knxlens.loadplan import _steps_of
+    lp = ET.fromstring('<LoadProcedure><LdCtrlConnect AppliesTo="auto"/><LdCtrlRestart AppliesTo="full"/>'
+                       '<LdCtrlDisconnect AppliesTo="auto"/></LoadProcedure>')
+    assert [n for n, _ in _steps_of(lp, ("full",))] == ["Connect", "Restart", "Disconnect"]
+    assert [n for n, _ in _steps_of(lp, ("par",))] == ["Connect", "Disconnect"]

@@ -56,7 +56,9 @@ def _steps_of(el, applies: tuple[str, ...]):
         if not tag.startswith("LdCtrl"):
             continue
         a = c.get("AppliesTo")
-        if a and not set(a.split(",")) & set(applies):
+        # "auto" (aus ETS3-Daten umgewandelte Applikationen): die ETS entscheidet selbst – hier
+        # gilt der Schritt für jede Downloadart; ein Teil-Download wird so zum vollständigen
+        if a and a != "auto" and not set(a.split(",")) & set(applies):
             continue
         yield tag[6:], dict(c.attrib)
 

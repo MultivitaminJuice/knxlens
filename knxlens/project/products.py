@@ -17,7 +17,7 @@ from pathlib import Path
 
 from defusedxml import ElementTree as ET
 
-from ..catalog import APP_FILE, APP_KEY, Application, Catalog
+from ..catalog import APP_FILE, APP_KEY, Application, Catalog, _local
 from . import Project
 
 CACHE = Path(os.environ.get("KNXLENS_CACHE", Path.home() / ".cache" / "knxlens")) / "products"
@@ -144,7 +144,15 @@ def add_products(p: Project, data: bytes, name: str = "") -> dict:
 def _merge_xml(old: bytes, new: bytes) -> bytes:
     a, b = ET.fromstring(old), ET.fromstring(new)
     if a.tag != b.tag:
-        raise ProductError(f"Unverträgliche Produktdaten ({a.tag} ≠ {b.tag})")
+        if _local(a.tag) != _local(b.tag):
+            raise ProductError(f"Unverträgliche Produktdaten ({a.tag} ≠ {b.tag})")
+        # Gleiche Datei aus verschiedenen ETS-Schemaversionen (z. B. knxprod von 2015 und
+        # ETS6-Export): Aufbau von Catalog/Hardware ist verträglich, gelesen wird nach
+        # lokalem Namen – Elemente der neuen Datei in den Namensraum der vorhandenen holen
+        ns = a.tag[:a.tag.index("}") + 1] if a.tag.startswith("{") else ""
+        for el in b.iter():
+            if isinstance(el.tag, str):
+                el.tag = ns + _local(el.tag)
     if not _merge_el(a, b):
         return old
     ns = re.match(r"\{(.*)\}", a.tag)
