@@ -369,14 +369,14 @@ def main() -> None:
     s = sub.add_parser("edit", help="Projekt im Editor öffnen (Browser)")
     s.add_argument("project", help="Projektdatei *.knxlens")
     s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--allow-host", action="append", default=[], metavar="NAME",
+                   help="weiteren Host-Namen zulassen (z. B. Tailscale-Name), mehrfach möglich")
     s.add_argument("--port", type=int, default=8770)
     s.set_defaults(func=cmd_edit)
 
     s = sub.add_parser("image", help="Download-Abbild berechnen und gegen gelesene Geräte prüfen")
     s.add_argument("project", help="Projektdatei *.knxlens")
     s.add_argument("pa", nargs="*", help="nur diese Geräte")
-    s.add_argument("--allow-host", action="append", default=[], metavar="NAME",
-                   help="weiteren Host-Namen zulassen (z. B. Tailscale-Name), mehrfach möglich")
     s.add_argument("--details", type=int, default=0, help="so viele abweichende Bytes je Gerät zeigen")
     s.set_defaults(func=cmd_image)
 
@@ -393,12 +393,6 @@ def main() -> None:
     s.add_argument("--kind", default="all", choices=["all", "par", "grp"])
     s.set_defaults(func=cmd_simulate)
 
-    s = sub.add_parser("serve", help="Weboberfläche (nur gespeicherte Daten, kein Buszugriff)")
-    s.add_argument("--reference", help="xknxproject-JSON des Referenzprojekts (optional)")
-    s.add_argument("--products", action="append", help=".knxprod/.knxproj mit Produktdaten (mehrfach möglich)")
-    s.add_argument("--products-dir", default="data/produkte", help="Ordner, dessen *.knxprod/*.vd? automatisch geladen werden")
-    s.add_argument("--host", default="127.0.0.1")
-    s.add_argument("--port", type=int, default=8765)
     s = sub.add_parser("verify", help="Regressionsprüfung: Berechnung gegen gelesene Geräte, Vergleich mit Sollwerten")
     s.add_argument("project", help="Projektdatei *.knxlens (mit den ETS-Werten der gelesenen Anlage)")
     s.add_argument("pa", nargs="*", help="nur diese Geräte")
@@ -406,13 +400,19 @@ def main() -> None:
     s.add_argument("--update", action="store_true", help="Verbesserungen als neue Sollwerte übernehmen")
     s.set_defaults(func=cmd_verify)
 
+    s = sub.add_parser("serve", help="Weboberfläche (nur gespeicherte Daten, kein Buszugriff)")
+    s.add_argument("--reference", help="xknxproject-JSON des Referenzprojekts (optional)")
+    s.add_argument("--products", action="append", help=".knxprod/.knxproj mit Produktdaten (mehrfach möglich)")
+    s.add_argument("--products-dir", default="data/produkte", help="Ordner, dessen *.knxprod/*.vd? automatisch geladen werden")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--allow-host", action="append", default=[], metavar="NAME",
+                   help="weiteren Host-Namen zulassen (z. B. Tailscale-Name), mehrfach möglich")
+    s.add_argument("--port", type=int, default=8765)
     s.set_defaults(func=cmd_serve)
 
     args = p.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-    s.add_argument("--allow-host", action="append", default=[], metavar="NAME",
-                   help="weiteren Host-Namen zulassen (z. B. Tailscale-Name), mehrfach möglich")
         format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
     )
     if not args.verbose:
