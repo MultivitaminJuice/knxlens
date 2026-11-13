@@ -11,6 +11,7 @@ import asyncio
 import logging
 import time
 from collections import deque
+from contextlib import asynccontextmanager
 
 from xknx.telegram import Telegram
 
@@ -33,6 +34,7 @@ class BusMonitor:
         self.error = ""
         self.route_back = False  # wirksam für die laufende/letzte Verbindung
         self.route_back_why = ""
+        self.xknx = None  # laufende Verbindung – auch für andere Lesezugriffe nutzbar
 
     @property
     def running(self) -> bool:
@@ -73,7 +75,7 @@ class BusMonitor:
     async def _run(self, gateway: str, route_back: bool) -> None:
         try:
             async with bus.connect(gateway, telegram_cb=self._received, route_back=route_back) as xknx:
-                self.own, self.state = str(xknx.current_address), "verbunden"
+                self.own, self.state, self.xknx = str(xknx.current_address), "verbunden", xknx
                 await asyncio.Event().wait()  # läuft, bis stop() abbricht
         except asyncio.CancelledError:
             raise
@@ -81,4 +83,16 @@ class BusMonitor:
             log.warning("Gruppenmonitor: %s", e)
             self.state, self.error = "Fehler", str(e) or type(e).__name__
         finally:
-            self.own = ""
+            self.own, self.xknx = "", None
+
+
+@asynccontextmanager
+async def shared_connection(monitor: BusMonitor, gateway: str, route_back: bool | None = None):
+    """Busverbindung für einen Lesezugriff: die des Gruppenmonitors, wenn er zum selben Interface
+    verbunden ist (belegt keinen zweiten Tunnelplatz), sonst eine eigene, die danach schließt.
+    In beiden Fällen gilt der ReadOnlyGuard aus bus.connect."""
+    if monitor.xknx is not None and monitor.state == "verbunden" and monitor.gateway == gateway:
+        yield monitor.xknx
+        return
+    async with bus.connect(gateway, route_back=route_back) as xknx:
+        yield xknx

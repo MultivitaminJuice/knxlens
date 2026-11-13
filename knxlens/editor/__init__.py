@@ -6,6 +6,11 @@ die Oberfläche zeigt nur an und schickt Änderungen. Kein Buszugriff.
 
 from __future__ import annotations
 
+import re
+import threading
+
+import anyio
+
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,7 +31,7 @@ from ..project.ops import ga_raw as GroupAddressRaw
 from ..traffic import format_value
 from .. import websafety
 from ..websafety import LOOPBACK
-from .busmon import SERVICES, BusMonitor
+from .busmon import SERVICES, BusMonitor, shared_connection
 from ..project.products import (MAX_PRODUCT_FILE, ProductError, add_products, app_for, manufacturer_names, product_texts,
                                 project_catalog)
 
@@ -256,6 +261,28 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
     app = FastAPI(title="knxlens Editor", docs_url=None, redoc_url=None, lifespan=lifespan)
     websafety.install(app, hosts)  # nur eigene Seite darf ändern, kein DNS-Rebinding
 
+    # Projekt-Anfragen nacheinander: synchrone Endpunkte laufen in Threads und teilen sich state.
+    # Ausgenommen: Gruppenmonitor (häufiges Abfragen) und das lange Lesen vom Bus.
+    # Threading-Sperre, im Thread erworben: blockiert die Ereignisschleife nicht und gilt über
+    # Schleifen hinweg (Testclient: eine Schleife je Anfrage).
+    api_lock = threading.Lock()
+    unlocked = re.compile(r"^/api/(monitor|device/[^/]+/read$)")
+
+    @asynccontextmanager
+    async def locked():
+        await anyio.to_thread.run_sync(api_lock.acquire)
+        try:
+            yield
+        finally:
+            api_lock.release()
+
+    @app.middleware("http")
+    async def serialize(request, call_next):
+        if request.url.path.startswith("/api/") and not unlocked.match(request.url.path):
+            async with locked():
+                return await call_next(request)
+        return await call_next(request)
+
     # --- Download-Vorschau: Plan, Abgleich mit dem Gerät, Gerät lesen (nur lesend) -------------
 
     def _mask(d: Device, app_) -> int | None:
@@ -333,7 +360,7 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
         st = Store(db_path)
         mask = _mask(d, app_)
         try:
-            async with bus.connect(gw, route_back=body.route_back) as xknx:
+            async with shared_connection(monitor, gw, body.route_back) as xknx:
                 st.start_session(gw, str(xknx.current_address), f"editor read {d.pa}")
                 await devmod.read_device(xknx, st, d.pa, mask)
                 if app_ is not None:
@@ -347,7 +374,8 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
                             await r.mem(seg.address + ap.co_table[1], 3 + 4 * max(n, 1))
         except Exception as e:  # noqa: BLE001 - Busfehler gehören in die Oberfläche
             raise HTTPException(502, f"Lesen fehlgeschlagen: {e}") from None
-        return device_check(uid)
+        async with locked():  # Abgleich liest das Projekt – wie die übrigen Anfragen gesperrt
+            return device_check(uid)
 
     @app.get("/api/monitor")
     def monitor_rows(since: int = 0, limit: int = 2000):

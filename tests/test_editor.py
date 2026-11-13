@@ -159,3 +159,45 @@ def test_pending_download_folder(client):
     assert "P-0123-0_DI-1" in pending()  # Testprojekt setzt nur ParametersLoaded
     load = client.get("/api/device/P-0123-0_DI-1").json()["load"]
     assert load["grp"] is False and load["par"] is True
+
+
+def test_parallel_commands_are_serialized(client):
+    """Viele gleichzeitige Befehle: jeder sieht den Stand des vorigen (keine doppelte „nächste freie“ Adresse)."""
+    from concurrent.futures import ThreadPoolExecutor
+    gas = client.get("/api/tree/groupaddresses").json()
+    middle = next(c["data"]["uid"] for main in gas for c in main["children"] if c["data"].get("level") == "middle")
+    with ThreadPoolExecutor(10) as pool:
+        results = list(pool.map(lambda _: client.post("/api/op", json={"op": "ga_add", "args": {"range_uid": middle}}), range(20)))
+    addresses = [r.json()["result"] for r in results]
+    assert all(r.status_code == 200 for r in results)
+    assert len(set(addresses)) == 20
+
+
+def test_shared_connection_reuses_monitor():
+    import asyncio
+    from knxlens.editor import busmon
+
+    class Fake:
+        gateway, state, xknx = "192.168.1.10", "verbunden", object()
+
+    async def use(gw):
+        async with busmon.shared_connection(Fake(), gw) as x:
+            return x
+
+    assert asyncio.run(use("192.168.1.10")) is Fake.xknx  # kein zweiter Tunnel
+    opened = []
+
+    class Conn:
+        async def __aenter__(self):
+            opened.append(1)
+            return "eigene"
+
+        async def __aexit__(self, *a):
+            return False
+
+    orig = busmon.bus.connect
+    busmon.bus.connect = lambda gw, route_back=None: Conn()
+    try:
+        assert asyncio.run(use("10.0.0.2")) == "eigene" and opened == [1]  # anderes Interface: eigene Verbindung
+    finally:
+        busmon.bus.connect = orig
