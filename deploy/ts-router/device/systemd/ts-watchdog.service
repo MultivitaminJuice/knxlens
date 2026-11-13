@@ -1,0 +1,7 @@
+[Unit]
+Description=Tailscale-Verbindung prüfen und reparieren
+After=tailscaled.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ts-watchdog

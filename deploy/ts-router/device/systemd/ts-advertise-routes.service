@@ -1,0 +1,9 @@
+[Unit]
+Description=Lokales Subnetz per Tailscale anbieten
+After=tailscaled.service network-online.target
+Wants=network-online.target
+Requires=tailscaled.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ts-advertise-routes

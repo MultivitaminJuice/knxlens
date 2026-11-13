@@ -1,0 +1,10 @@
+[Unit]
+Description=Subnetz alle 2 Minuten prüfen
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=2min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Lokales IPv4-Subnetz des Default-Interface ermitteln und per Tailscale anbieten.
+# Ruft "tailscale set" nur auf, wenn sich die Routen ändern.
+# Gestartet von ts-advertise-routes.timer (alle 2 Min.) und vom networkd-dispatcher-Hook.
+set -euo pipefail
+
+# shellcheck disable=SC1091
+[ -r /etc/default/ts-router ] && . /etc/default/ts-router
+ROUTES_OVERRIDE=${ROUTES_OVERRIDE:-}
+EXTRA_ROUTES=${EXTRA_ROUTES:-}
+VIA_SITE_ID=${VIA_SITE_ID:-}
+ALLOW_NON_PRIVATE=${ALLOW_NON_PRIVATE:-no}
+
+state=$(tailscale status --json 2>/dev/null | jq -r '.BackendState // ""' || true)
+if [ "$state" != Running ]; then
+  echo "Tailscale nicht verbunden ($state), nichts zu tun"
+  exit 0
+fi
+
+# 10/8, 172.16/12, 192.168/16
+is_private() {
+  local a b
+  IFS=./ read -r a b _ <<<"$1"
+  [ "$a" = 10 ] && return 0
+  [ "$a" = 172 ] && [ "$b" -ge 16 ] && [ "$b" -le 31 ] && return 0
+  [ "$a" = 192 ] && [ "$b" = 168 ] && return 0
+  return 1
+}
+is_cgnat() {  # 100.64/10 kollidiert mit den Tailscale-Adressen selbst
+  local a b
+  IFS=./ read -r a b _ <<<"$1"
+  [ "$a" = 100 ] && [ "$b" -ge 64 ] && [ "$b" -le 127 ]
+}
+
+routes=()
+if [ -n "$ROUTES_OVERRIDE" ]; then
+  read -r -a routes <<<"${ROUTES_OVERRIDE//,/ }"
+else
+  dev=$(ip -4 -j route show default | jq -r 'sort_by(.metric // 0) | .[0].dev // empty')
+  if [ -z "$dev" ]; then
+    echo "keine Default-Route, Routen bleiben unverändert"
+    exit 0
+  fi
+  cidr=$(ip -4 -j route show dev "$dev" proto kernel scope link | jq -r '.[0].dst // empty')
+  if [ -z "$cidr" ]; then
+    echo "kein Subnetz auf $dev gefunden, Routen bleiben unverändert"
+    exit 0
+  fi
+  if is_cgnat "$cidr"; then
+    echo "WARNUNG: $cidr auf $dev liegt in 100.64.0.0/10 (Tailscale-Bereich), wird nicht angeboten" >&2
+    exit 0
+  fi
+  if ! is_private "$cidr" && [ "$ALLOW_NON_PRIVATE" != yes ]; then
+    echo "WARNUNG: $cidr auf $dev ist kein privates Netz, wird nicht angeboten (ALLOW_NON_PRIVATE=yes)" >&2
+    exit 0
+  fi
+  if [ -n "$VIA_SITE_ID" ]; then
+    # 4via6: das IPv4-Subnetz unter einem eindeutigen IPv6-Präfix anbieten
+    cidr=$(tailscale debug via "$VIA_SITE_ID" "$cidr")
+  fi
+  routes=("$cidr")
+fi
+if [ -n "$EXTRA_ROUTES" ]; then
+  read -r -a extra <<<"${EXTRA_ROUTES//,/ }"
+  routes+=("${extra[@]}")
+fi
+
+want=$(printf '%s\n' "${routes[@]}" | sort -u | paste -sd, -)
+have=$(tailscale debug prefs | jq -r '(.AdvertiseRoutes // []) | sort | unique | join(",")')
+
+if [ "$want" = "$have" ]; then
+  exit 0
+fi
+echo "Routen: '${have:-keine}' -> '$want'"
+tailscale set --advertise-routes="$want"

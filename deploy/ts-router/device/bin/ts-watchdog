@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Verbindung prüfen und gestuft reparieren. Läuft jede Minute (ts-watchdog.timer).
+#   gesund     = Default-Route vorhanden, Tailscale "Running" und mit dem Koordinationsserver verbunden
+#   3 Min.     krank -> Netzwerk neu anfragen (DHCP) bzw. tailscaled neu starten
+#   10 Min.    krank -> beides neu starten
+#   WATCHDOG_REBOOT_AFTER_MIN krank (Standard 30) -> Neustart des Geräts
+set -euo pipefail
+
+# shellcheck disable=SC1091
+[ -r /etc/default/ts-router ] && . /etc/default/ts-router
+REBOOT_AFTER=${WATCHDOG_REBOOT_AFTER_MIN:-30}
+
+RUN=/run/ts-router
+mkdir -p "$RUN"
+COUNT_FILE=$RUN/failcount
+
+dev=$(ip -4 -j route show default | jq -r 'sort_by(.metric // 0) | .[0].dev // empty')
+st=$(tailscale status --json 2>/dev/null || echo '{}')
+backend=$(jq -r '.BackendState // "unbekannt"' <<<"$st")
+online=$(jq -r '.Self.Online // false' <<<"$st")
+
+if [ -n "$dev" ] && [ "$backend" = Running ] && [ "$online" = true ]; then
+  if [ -s "$COUNT_FILE" ]; then
+    echo "wieder gesund nach $(cat "$COUNT_FILE") Min."
+    rm -f "$COUNT_FILE"
+  fi
+  exit 0
+fi
+
+n=$(( $(cat "$COUNT_FILE" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$COUNT_FILE"
+echo "ungesund seit $n Min.: default-dev='${dev:-keins}' backend=$backend online=$online"
+
+restart_net() {
+  if [ -n "$dev" ]; then networkctl reconfigure "$dev" || true
+  else systemctl restart systemd-networkd || true
+  fi
+}
+
+case $n in
+  3)
+    if [ -z "$dev" ]; then echo "-> Netzwerk neu"; restart_net
+    else echo "-> tailscaled neu"; systemctl restart tailscaled
+    fi ;;
+  10)
+    echo "-> Netzwerk und tailscaled neu"; restart_net; systemctl restart tailscaled ;;
+esac
+
+uptime_min=$(( $(cut -d. -f1 /proc/uptime) / 60 ))
+if [ "$REBOOT_AFTER" -gt 0 ] && [ "$n" -ge "$REBOOT_AFTER" ] && [ "$uptime_min" -ge "$REBOOT_AFTER" ]; then
+  echo "-> Neustart des Geräts"
+  systemctl reboot
+fi

@@ -1,0 +1,11 @@
+#!/bin/sh
+# networkd-dispatcher: läuft, sobald ein Interface "routable" ist (Adresse per DHCP erhalten).
+# $IFACE setzt networkd-dispatcher.
+case "$IFACE" in
+  tailscale*|lo) exit 0 ;;
+esac
+
+# Von Tailscale empfohlen für Subnetz-Router: UDP-GRO-Forwarding, spart CPU
+ethtool -K "$IFACE" rx-udp-gro-forwarding on rx-gro-list off >/dev/null 2>&1 || true
+
+systemctl start --no-block ts-advertise-routes.service

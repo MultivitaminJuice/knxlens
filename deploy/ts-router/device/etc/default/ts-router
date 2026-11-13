@@ -1,0 +1,19 @@
+# Konfiguration für ts-advertise-routes und ts-watchdog (wird von setup.sh nicht überschrieben)
+
+# Feste Routen statt automatischer Erkennung, kommagetrennt.
+# Beispiel bei Subnetz-Kollision mit dem Heimnetz: nur das KNX-Interface anbieten
+#   ROUTES_OVERRIDE="192.168.178.50/32"
+ROUTES_OVERRIDE=""
+
+# Zusätzlich anzubietende Routen, kommagetrennt
+EXTRA_ROUTES=""
+
+# 4via6: Site-ID (0–65535). Gesetzt = das erkannte IPv4-Subnetz wird unter
+# fd7a:115c:a1e0:b1a:0:<ID>:… angeboten statt direkt. Siehe README.
+VIA_SITE_ID=""
+
+# Auch nicht-private Subnetze anbieten (yes/no)
+ALLOW_NON_PRIVATE="no"
+
+# Neustart nach so vielen Minuten ohne Verbindung, 0 = nie
+WATCHDOG_REBOOT_AFTER_MIN="30"
