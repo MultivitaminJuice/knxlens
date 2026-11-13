@@ -4,6 +4,7 @@
 import { computed, ref, watch } from 'vue'
 import { NButton, NRadioButton, NRadioGroup } from 'naive-ui'
 import { api, ApiError, type DeviceCheck, type DevicePlan } from '../api'
+import { loadRouteBack, routeBackValue } from '../routeBack'
 import { store } from '../store'
 
 const props = defineProps<{ uid: string | null }>()
@@ -33,7 +34,7 @@ async function readDevice() {
   try {
     let gw = ''
     try { gw = localStorage.getItem('knxlens:gateway') ?? '' } catch { /* egal */ }
-    check.value = await api.deviceRead(props.uid, gw)
+    check.value = await api.deviceRead(props.uid, gw, routeBackValue(loadRouteBack()))
     store.notify('success', 'Gerät gelesen (nur lesend) und verglichen')
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : String(e)

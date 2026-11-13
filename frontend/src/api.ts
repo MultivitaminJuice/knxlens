@@ -171,8 +171,10 @@ export const api = {
   setParam: (uid: string, id: string, value: string | null, orphans: 'ask' | 'keep' | 'unlink' = 'ask') =>
     send<DeviceDetail>('PUT', `/api/device/${encodeURIComponent(uid)}/param`, { id, value, orphans }),
   monitor: (since: number) =>
-    get<{ state: string; gateway: string; own: string; error: string; rows: MonitorRow[] }>(`/api/monitor?since=${since}`),
-  monitorStart: (gateway: string) => send<{ state: string }>('POST', '/api/monitor/start', { gateway }),
+    get<{ state: string; gateway: string; own: string; error: string; route_back: boolean; route_back_why: string; rows: MonitorRow[] }>(
+      `/api/monitor?since=${since}`),
+  monitorStart: (gateway: string, route_back: boolean | null = null) =>
+    send<{ state: string }>('POST', '/api/monitor/start', { gateway, route_back }),
   monitorStop: () => send<{ state: string }>('POST', '/api/monitor/stop'),
   monitorClear: () => send<{ ok: boolean }>('POST', '/api/monitor/clear'),
   files: () => get<{ folder: string; files: ProjectFile[] }>('/api/files'),
@@ -188,7 +190,8 @@ export const api = {
   restoreVersion: (id: number) => send<ProjectInfo>('POST', `/api/versions/${id}/restore`),
   deviceCheck: (uid: string) => get<DeviceCheck>(`/api/device/${encodeURIComponent(uid)}/check`),
   devicePlan: (uid: string, kind: string) => get<DevicePlan>(`/api/device/${encodeURIComponent(uid)}/plan?kind=${kind}`),
-  deviceRead: (uid: string, gateway: string) => send<DeviceCheck>('POST', `/api/device/${encodeURIComponent(uid)}/read`, { gateway }),
+  deviceRead: (uid: string, gateway: string, route_back: boolean | null = null) =>
+    send<DeviceCheck>('POST', `/api/device/${encodeURIComponent(uid)}/read`, { gateway, route_back }),
   orphans: () => get<{ uid: string; pa: string | null; name: string; orphans: Orphan[] }[]>('/api/orphans'),
   unlinkOrphans: (uids: string[] | null) => send<{ unlinked: number }>('POST', '/api/orphans/unlink', { uids }),
   save: () => send<{ saved: string }>('POST', '/api/project/save'),

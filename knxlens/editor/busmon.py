@@ -31,15 +31,19 @@ class BusMonitor:
         self.own = ""
         self.state = "getrennt"  # getrennt, verbinde, verbunden, Fehler
         self.error = ""
+        self.route_back = False  # wirksam für die laufende/letzte Verbindung
+        self.route_back_why = ""
 
     @property
     def running(self) -> bool:
         return self.task is not None and not self.task.done()
 
-    async def start(self, gateway: str) -> None:
+    async def start(self, gateway: str, route_back: bool | None = None) -> None:
+        """route_back=True erzwingt Route-Back, sonst Automatik (bzw. Prozess-Voreinstellung)."""
         await self.stop()
         self.gateway, self.error, self.state = gateway, "", "verbinde"
-        self.task = asyncio.create_task(self._run(gateway))
+        self.route_back, self.route_back_why = bus.resolve_route_back(gateway, route_back)
+        self.task = asyncio.create_task(self._run(gateway, self.route_back))
 
     async def stop(self) -> None:
         if self.running:
@@ -66,9 +70,9 @@ class BusMonitor:
                           "payload": payload, "bits": bits})
         self.next_id += 1
 
-    async def _run(self, gateway: str) -> None:
+    async def _run(self, gateway: str, route_back: bool) -> None:
         try:
-            async with bus.connect(gateway, telegram_cb=self._received) as xknx:
+            async with bus.connect(gateway, telegram_cb=self._received, route_back=route_back) as xknx:
                 self.own, self.state = str(xknx.current_address), "verbunden"
                 await asyncio.Event().wait()  # läuft, bis stop() abbricht
         except asyncio.CancelledError:

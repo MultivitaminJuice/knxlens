@@ -316,6 +316,12 @@ def cmd_serve(args: argparse.Namespace) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(prog="knxlens")
     p.add_argument("-g", "--gateway", help="IP des KNX-IP-Interfaces (für Busbefehle)")
+    p.add_argument(
+        "--route-back", action="store_true",
+        help="Route-Back/NAT-Modus (HPAI 0.0.0.0:0) erzwingen. Ohne Angabe automatisch: an, wenn "
+        "das Interface nicht im Subnetz der eigenen Absenderadresse liegt (z. B. über einen "
+        "Tailscale-Subnetz-Router); auch per KNXLENS_ROUTE_BACK=1",
+    )
     p.add_argument("--db", default=DEFAULT_DB)
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -411,6 +417,8 @@ def main() -> None:
     )
     if not args.verbose:
         logging.getLogger("xknx").setLevel(logging.WARNING)
+    if args.route_back:
+        bus.ROUTE_BACK = True
     result = args.func(args)
     if asyncio.iscoroutine(result):
         try:

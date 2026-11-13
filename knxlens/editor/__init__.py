@@ -210,6 +210,7 @@ class CommentIn(BaseModel):
 
 class MonitorIn(BaseModel):
     gateway: str
+    route_back: bool | None = None  # True = erzwingen, sonst automatisch
 
 
 def _dpt(text: str) -> dict | None:
@@ -229,6 +230,7 @@ def find_store(project: Path) -> Path:
 
 class ReadIn(BaseModel):
     gateway: str = ""
+    route_back: bool | None = None  # True = erzwingen, sonst automatisch
 
 
 def create_editor_app(project_path: str, preload: bool = True, gateway: str = "", db: str | None = None,
@@ -252,9 +254,9 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
         await monitor.stop()  # Tunnelverbindung beim Beenden sauber abbauen
 
     app = FastAPI(title="knxlens Editor", docs_url=None, redoc_url=None, lifespan=lifespan)
+    websafety.install(app, hosts)  # nur eigene Seite darf ändern, kein DNS-Rebinding
 
     # --- Download-Vorschau: Plan, Abgleich mit dem Gerät, Gerät lesen (nur lesend) -------------
-    websafety.install(app, hosts)  # nur eigene Seite darf ändern, kein DNS-Rebinding
 
     def _mask(d: Device, app_) -> int | None:
         from ..store import Store
@@ -331,7 +333,7 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
         st = Store(db_path)
         mask = _mask(d, app_)
         try:
-            async with bus.connect(gw) as xknx:
+            async with bus.connect(gw, route_back=body.route_back) as xknx:
                 st.start_session(gw, str(xknx.current_address), f"editor read {d.pa}")
                 await devmod.read_device(xknx, st, d.pa, mask)
                 if app_ is not None:
@@ -373,13 +375,14 @@ def create_editor_app(project_path: str, preload: bool = True, gateway: str = ""
                 "known": g is not None,
             })
         return {"state": monitor.state, "gateway": monitor.gateway or gateway, "own": monitor.own,
-                "error": monitor.error, "rows": rows}
+                "error": monitor.error, "route_back": monitor.route_back,
+                "route_back_why": monitor.route_back_why, "rows": rows}
 
     @app.post("/api/monitor/start")
     async def monitor_start(body: MonitorIn):
         if not body.gateway.strip():
             raise HTTPException(422, "IP-Adresse des KNX-IP-Interfaces fehlt")
-        await monitor.start(body.gateway.strip())
+        await monitor.start(body.gateway.strip(), body.route_back)
         return {"state": monitor.state}
 
     @app.post("/api/monitor/stop")

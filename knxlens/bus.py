@@ -9,7 +9,10 @@ cEMI-Frame – falls künftige xknx-Versionen einen anderen Weg nehmen.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import os
+import socket
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -93,20 +96,94 @@ class ReadOnlyGuard:
         iface.__class__ = GuardedInterface
 
 
+#: Route-Back (NAT-Modus): Im CONNECT_REQUEST steht als Rückadresse 0.0.0.0:0,
+#: das Interface antwortet an die Absenderadresse des UDP-Pakets. Nötig, wenn
+#: zwischen Rechner und Interface NAT liegt – etwa ein Tailscale-Subnetz-Router
+#: (Source-NAT): Mit der eigenen IP im HPAI schickt das Interface seine Antworten
+#: an eine Adresse, die es nicht erreicht.
+#:
+#: Ohne weitere Angabe entscheidet die Automatik (needs_route_back). Erzwingen
+#: lässt es sich für den ganzen Prozess per `knxlens --route-back` oder
+#: KNXLENS_ROUTE_BACK=1, je Verbindung über das Argument route_back=True.
+#: Abschalten lässt es sich nicht: xknx schaltet Route-Back ohnehin selbst ein,
+#: wenn keine eigene Schnittstelle im Subnetz des Interface liegt.
+ROUTE_BACK: bool = os.environ.get("KNXLENS_ROUTE_BACK", "").strip().lower() in {"1", "true", "yes", "ja", "on", "an"}
+
+
+def _local_ip_for(gateway_ip: str) -> str | None:
+    """Eigene Adresse, über die das System das Interface erreicht (sendet nichts)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect((gateway_ip, 3671))
+            return s.getsockname()[0]
+    except OSError:
+        return None
+
+
+def _local_networks() -> list[ipaddress.IPv4Interface]:
+    import ifaddr  # Abhängigkeit von xknx
+    return [ipaddress.IPv4Interface(f"{ip.ip}/{ip.network_prefix}")
+            for adapter in ifaddr.get_adapters() for ip in adapter.ips if ip.is_IPv4]
+
+
+def needs_route_back(gateway_ip: str) -> tuple[bool, str]:
+    """Automatik: Route-Back, wenn das Interface nicht im Subnetz der eigenen Absenderadresse liegt.
+
+    Im eigenen LAN liegt es dort (direkt, wie bisher). Über einen Subnetz-Router,
+    VPN oder sonstiges Routing nicht – dann antwortet es nur per Route-Back zuverlässig.
+    """
+    try:
+        gw = ipaddress.IPv4Address(socket.gethostbyname(gateway_ip))
+    except (OSError, ValueError):
+        return True, "Adresse nicht auflösbar"
+    local = _local_ip_for(str(gw))
+    if local is None:
+        return True, "kein Weg zum Interface bekannt"
+    for net in _local_networks():
+        if str(net.ip) == local:
+            if gw in net.network:
+                return False, f"im eigenen Netz {net.network}"
+            return True, f"nicht im eigenen Netz {net.network}"
+    return True, f"Absenderadresse {local} keinem Netz zuzuordnen"
+
+
+def resolve_route_back(gateway_ip: str, route_back: bool | None = None) -> tuple[bool, str]:
+    """Wirksame Einstellung und Begründung. route_back=True erzwingt, sonst Voreinstellung bzw. Automatik."""
+    if route_back:
+        return True, "erzwungen"
+    if ROUTE_BACK:
+        return True, "erzwungen (Voreinstellung)"
+    on, why = needs_route_back(gateway_ip)
+    return on, f"automatisch, {why}"
+
+
+def connection_config(gateway_ip: str, route_back: bool | None = None) -> ConnectionConfig:
+    """UDP-Tunnel zum Interface; route_back=True erzwingt Route-Back, sonst Automatik."""
+    return ConnectionConfig(
+        connection_type=ConnectionType.TUNNELING,
+        gateway_ip=gateway_ip,
+        route_back=resolve_route_back(gateway_ip, route_back)[0],
+    )
+
+
 @asynccontextmanager
 async def connect(
     gateway_ip: str,
     *,
     allow: set[str] | None = None,
     telegram_cb=None,  # noqa: ANN001
+    route_back: bool | None = None,
 ) -> AsyncIterator[XKNX]:
     """Tunnelverbindung (UDP) mit installiertem Guard."""
     if not gateway_ip:
         raise SystemExit("Busbefehl braucht -g <IP des Interfaces>")
+    on, why = resolve_route_back(gateway_ip, route_back)
+    log.info("Route-Back %s (%s)", "an – HPAI 0.0.0.0:0" if on else "aus", why)
     xknx = XKNX(
         connection_config=ConnectionConfig(
             connection_type=ConnectionType.TUNNELING,
             gateway_ip=gateway_ip,
+            route_back=on,
         ),
         telegram_received_cb=telegram_cb,
         state_updater=False,

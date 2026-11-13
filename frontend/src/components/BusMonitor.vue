@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Gruppenmonitor: zeigt mitgehörte Gruppentelegramme. Rein lesend – der Kern sendet nichts.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { NButton, NInput, NSwitch } from 'naive-ui'
+import { NButton, NInput, NSelect, NSwitch } from 'naive-ui'
 import { api, ApiError, type MonitorRow } from '../api'
+import { loadRouteBack, ROUTE_BACK_OPTIONS, routeBackValue, saveRouteBack, type RouteBackMode } from '../routeBack'
 import { store } from '../store'
 
 const GW_KEY = 'knxlens:gateway'
@@ -10,6 +11,9 @@ const gateway = ref('')
 const state = ref('getrennt')
 const own = ref('')
 const error = ref('')
+const routeMode = ref<RouteBackMode>('auto')
+const routeBack = ref(false) // wirksam für die laufende Verbindung
+const routeWhy = ref('')
 const rows = ref<MonitorRow[]>([])
 const filter = ref('')
 const paused = ref(false)
@@ -24,6 +28,8 @@ async function poll() {
     state.value = r.state
     own.value = r.own
     error.value = r.error
+    routeBack.value = r.route_back
+    routeWhy.value = r.route_back_why
     if (!gateway.value && r.gateway) gateway.value = r.gateway
     if (r.rows.length) {
       lastId = r.rows[r.rows.length - 1].id
@@ -40,7 +46,8 @@ async function connect() {
   busy.value = true
   try {
     try { localStorage.setItem(GW_KEY, gateway.value.trim()) } catch { /* nur Komfort */ }
-    await api.monitorStart(gateway.value.trim())
+    saveRouteBack(routeMode.value)
+    await api.monitorStart(gateway.value.trim(), routeBackValue(routeMode.value))
     await poll()
   } catch (e) {
     store.notify('error', e instanceof ApiError ? e.message : String(e))
@@ -76,13 +83,14 @@ function reveal(addr: string) {
 
 onMounted(async () => {
   try { gateway.value = localStorage.getItem(GW_KEY) ?? '' } catch { /* egal */ }
+  routeMode.value = loadRouteBack()
   await poll()
   timer = window.setInterval(poll, 700)
 })
 onBeforeUnmount(() => clearInterval(timer))
 
 const stateLabel = computed(() => ({
-  verbunden: `verbunden${own.value ? ' als ' + own.value : ''}`,
+  verbunden: `verbunden${own.value ? ' als ' + own.value : ''}${routeBack.value ? ' · Route-Back' : ''}`,
   verbinde: 'verbinde …',
   getrennt: 'getrennt',
   Fehler: 'Fehler',
@@ -94,9 +102,12 @@ const stateLabel = computed(() => ({
     <div class="tools">
       <NInput v-model:value="gateway" size="small" placeholder="IP des KNX-IP-Interfaces" class="gw" :disabled="state === 'verbunden'"
               @keyup.enter="state !== 'verbunden' && connect()" />
+      <NSelect v-model:value="routeMode" size="small" :options="ROUTE_BACK_OPTIONS" class="rb"
+               :disabled="state === 'verbunden' || state === 'verbinde'" :consistent-menu-width="false"
+               @update:value="saveRouteBack" />
       <NButton v-if="state !== 'verbunden' && state !== 'verbinde'" size="small" type="primary" :loading="busy" :disabled="!gateway.trim()" @click="connect">Verbinden</NButton>
       <NButton v-else size="small" @click="disconnect">Trennen</NButton>
-      <span class="state" :class="state">{{ stateLabel }}</span>
+      <span class="state" :class="state" :title="state === 'verbunden' && routeWhy ? `Route-Back ${routeBack ? 'an' : 'aus'}: ${routeWhy}` : ''">{{ stateLabel }}</span>
       <span class="spacer" />
       <label class="pause"><NSwitch v-model:value="paused" size="small" /> Pause</label>
       <NButton size="small" quaternary @click="clear">Leeren</NButton>
@@ -128,8 +139,9 @@ const stateLabel = computed(() => ({
 
 <style scoped>
 .mon { height: 100%; display: flex; flex-direction: column; min-width: 0; background: var(--kl-bg); }
-.tools { display: flex; gap: 6px; padding: 6px 8px; align-items: center; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 8px; align-items: center; }
 .gw { width: 180px; flex: none; }
+.rb { width: 190px; flex: none; }
 .spacer { flex: 1; }
 .state { font-size: 12px; color: var(--kl-muted); }
 .state.verbunden { color: #18a058; }

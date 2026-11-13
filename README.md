@@ -52,6 +52,13 @@ Unterstützte Geräte: System 7 und System B (Masken 0x07xx) an echten Geräten 
 BCU1/BCU2 (0x001x/0x002x, z. B. ältere Tastsensoren) nach Spezifikation implementiert,
 bisher nur gegen nachgebaute Speicherabbilder getestet.
 
+Fernzugriff (z. B. über einen Tailscale-Subnetz-Router, siehe
+[deploy/ts-router](deploy/ts-router/README.md)): knxlens schaltet Route-Back (NAT-Modus)
+automatisch ein, wenn das Interface nicht im eigenen Subnetz liegt. Erzwingen (nötig bei
+Subnetz-Kollision zwischen fernem und eigenem Netz): im Editor im Gruppenmonitor unter
+„Rückweg“, auf der Kommandozeile mit `--route-back` oder `KNXLENS_ROUTE_BACK=1`. Discovery
+per Multicast geht dort nicht, die IP des Interface ist nötig.
+
 ## Installation
 
 ```bash
