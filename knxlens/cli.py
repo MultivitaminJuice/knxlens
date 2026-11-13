@@ -252,8 +252,9 @@ def cmd_simulate(args: argparse.Namespace) -> None:
         ok += 1
         total_eq += eq
         total_ne += ne
+        mcb = f" | Prüfsummen {res.mcb[0]}/{res.mcb[1]}" if res.mcb else ""
         print(f"{d.pa:10} {res.steps:3} Schritte, {res.bytes_written:5} Byte in {res.writes:4} Schreibbefehlen"
-              f" | gegen Gerät: {eq} gleich, {ne} abweichend")
+              f" | gegen Gerät: {eq} gleich, {ne} abweichend{mcb}")
     print(f"\nGesamt: {ok} Geräte simuliert, {failed} abgebrochen; {total_eq} Byte gleich, {total_ne} abweichend")
 
 
@@ -274,6 +275,13 @@ def cmd_verify(args: argparse.Namespace) -> None:
         extra = f", {v['errors']} Abbrüche" if v["errors"] else ""
         print(f"  {name:7} {v['equal']:6} gleich, {v['diff']:5} abweichend{extra}")
     old = verify.load(baseline)
+    if args.rebaseline and not args.pa:
+        if old is not None:
+            for line in sum(verify.compare(old, new), []):
+                print(f"  übernommen: {line}")
+        verify.save(baseline, new)
+        print(f"Sollwerte neu gesetzt: {baseline}")
+        return
     if old is None:
         verify.save(baseline, new)
         print(f"Sollwerte neu angelegt: {baseline}")
@@ -398,6 +406,8 @@ def main() -> None:
     s.add_argument("pa", nargs="*", help="nur diese Geräte")
     s.add_argument("--baseline", help="Sollwert-Datei (Standard: verify-sollwerte.json neben der Datenbank)")
     s.add_argument("--update", action="store_true", help="Verbesserungen als neue Sollwerte übernehmen")
+    s.add_argument("--rebaseline", action="store_true",
+                   help="aktuellen Stand bewusst als Sollwert setzen (z. B. nach neuen Gerätelesungen)")
     s.set_defaults(func=cmd_verify)
 
     s = sub.add_parser("serve", help="Weboberfläche (nur gespeicherte Daten, kein Buszugriff)")

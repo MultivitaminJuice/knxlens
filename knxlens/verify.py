@@ -11,6 +11,7 @@ Kennzahlen (je Gerät, „gleich“ darf nicht sinken, „abweichend“ nicht st
   ets       Abbild ↔ ETS-Ladeabbild (wo vorhanden)
   sim       simulierter Komplett-Download ↔ Gerät (geschriebene Bytes)
   read      Leseseite: aus dem Gerät gelesene Parameter ↔ Projektwerte
+  mcb       Prüfsummen-Einträge (PID 27) des simulierten Downloads ↔ im Gerät gelesene
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ METRICS = {
     "ets": ("equal", "diff"),
     "sim": ("equal", "diff"),
     "read": ("equal", "diff"),
+    "mcb": ("equal", "diff"),
 }
 
 
@@ -67,8 +69,10 @@ def measure(project_path: str | Path, db_path: str | Path, only: list[str] | Non
         if c.ets_equal or c.ets_diff:
             m["ets"] = {"equal": c.ets_equal, "diff": len(c.ets_diff)}
         try:
-            _, eq, ne = simulate_against_store(device_plan(ap, d, master, "all", number_of), store, d.pa)
+            res, eq, ne = simulate_against_store(device_plan(ap, d, master, "all", number_of), store, d.pa)
             m["sim"] = {"equal": eq, "diff": ne}
+            if res.mcb:
+                m["mcb"] = {"equal": res.mcb[0], "diff": res.mcb[1] - res.mcb[0]}
         except DownloadError as e:
             m["sim"] = {"equal": 0, "diff": 0, "error": str(e)}
         ev = evaluate_from_store(ap, Raw(store, d.pa), {l.number for l in d.links if l.number is not None})
