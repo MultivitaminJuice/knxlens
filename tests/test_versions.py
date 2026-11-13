@@ -2,9 +2,10 @@
 
 import dataclasses
 
+from test_project import make_knxproj
+
 from knxlens.project import Project, versions
 from knxlens.project.knxproj_io import import_knxproj
-from test_project import make_knxproj
 
 
 def test_versions_roundtrip_and_survive_save(tmp_path):

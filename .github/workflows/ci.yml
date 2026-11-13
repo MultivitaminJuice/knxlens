@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]" playwright
+      - run: ruff check .
+      - name: Chromium für die Oberflächentests
+        run: python -m playwright install --with-deps chromium-headless-shell
+      - run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build  # inkl. Typprüfung (vue-tsc)
+        working-directory: frontend
+      - name: Gebaute Oberfläche im Repo ist aktuell
+        run: git diff --exit-code --stat -- knxlens/web/static/editor || (echo "::error::knxlens/web/static/editor neu bauen (cd frontend && npm run build) und mitcommitten" && exit 1)

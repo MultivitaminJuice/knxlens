@@ -1,9 +1,13 @@
 """Einzelne Speicherbereiche lesen (nur lesend, über den Guard)."""
-import asyncio, sys
+import asyncio
+import sys
+
 from xknx.telegram import IndividualAddress
+
 from knxlens import bus
 from knxlens.device import Reader
 from knxlens.store import Store
+
 
 async def main(gw, pa, ranges):
     store = Store("data/knxlens.sqlite")

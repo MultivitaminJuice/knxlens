@@ -6,6 +6,7 @@ import json
 
 from xknx.telegram import GroupAddress, IndividualAddress
 
+from . import bcu1
 from .device import (
     OT_ADDRESS_TABLE,
     OT_APPLICATION,
@@ -19,7 +20,6 @@ from .device import (
     PID_SERIAL_NUMBER,
     PID_TABLE_REFERENCE,
 )
-from . import bcu1
 from .model import Device, config_byte
 from .store import Store
 

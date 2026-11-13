@@ -202,6 +202,6 @@ def device_plan(ap, device, master_xml: bytes | None, kind: str = "all", number_
             buf[off:off + len(data)] = data
             segs[seg.address] = bytes(buf)
             old = masks.get(("abs", seg.address), lambda i: False)
-            masks[("abs", seg.address)] = lambda i, old=old, off=off, n=len(data): off <= i < off + n or old(i)
+            masks[("abs", seg.address)] = lambda i, old=old, off=off, n=len(data): off <= i < off + n or old(i)  # noqa: B008 - Wert binden
     steps = raw_steps(_read_member(ap.app.source_path, ap.app.member), master_xml, mask_text, kind)
     return build(steps, segs, tabs, rel, masks, {k: bytes(v) for k, v in img.props.items()})

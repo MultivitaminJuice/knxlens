@@ -11,8 +11,8 @@ import io
 import os
 import re
 import tempfile
-import zipfile
 import xml.etree.ElementTree as XET
+import zipfile
 from pathlib import Path
 
 from defusedxml import ElementTree as ET
@@ -38,10 +38,32 @@ def project_catalog(p: Project) -> Catalog:
                 raise ValueError(f"Ungültiger Pfad in Produktdaten: {name}")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
-        done.touch()
+    done.touch()  # auch bei Wiederverwendung: Zeitpunkt der letzten Nutzung
+    prune_cache(keep=folder)
     cat = Catalog()
     cat.add(folder)
     return cat
+
+
+CACHE_MAX_AGE = 30 * 24 * 3600  # ungenutzte Produktordner nach 30 Tagen entfernen
+
+
+def prune_cache(keep: Path | None = None, max_age: float = CACHE_MAX_AGE) -> int:
+    """Alte Produktordner löschen (jede Produktänderung legt einen neuen an, je bis zu einigen
+    hundert MB). Maßgeblich ist die letzte Nutzung (.complete); unfertige Ordner bleiben."""
+    import shutil
+    import time
+    if not CACHE.is_dir():
+        return 0
+    n = 0
+    for f in CACHE.iterdir():
+        done = f / ".complete"
+        if f == keep or not f.is_dir() or not done.exists():
+            continue
+        if time.time() - done.stat().st_mtime > max_age:
+            shutil.rmtree(f, ignore_errors=True)
+            n += 1
+    return n
 
 
 def app_for(cat: Catalog, full_id: str) -> Application | None:

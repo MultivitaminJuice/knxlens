@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "httpx"]
+dev = ["pytest", "httpx", "ruff"]
 
 [project.scripts]
 knxlens = "knxlens.cli:main"
@@ -28,3 +28,17 @@ packages = ["knxlens", "knxlens.web", "knxlens.editor", "knxlens.project"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["ui: Oberflächentests im Browser (Playwright, sonst übersprungen)"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I"]
+# l (Link), Lambda-Zuweisungen und lange Tabellenzeilen sind hier gewollt; zip() über ungleich
+# lange Folgen ist an einigen Stellen beabsichtigt
+ignore = ["E741", "E731", "E501", "B905"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E701", "E702"]  # Diagnoseskripte, knapp gehalten

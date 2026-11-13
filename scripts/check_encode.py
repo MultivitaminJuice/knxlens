@@ -1,6 +1,7 @@
 """Kodierung prüfen: für jeden aus dem Gerät gelesenen Parameter muss encode(decode(raw)) == raw sein."""
 import sys
 from collections import Counter
+
 from knxlens import catalog, decode, device, params
 from knxlens.store import Store
 

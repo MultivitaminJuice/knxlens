@@ -1,8 +1,11 @@
 """Einzelne Parameter eines Geräts im Detail: Typ, Ort, Rohbytes, Wert, Projektwert."""
-import re, sys
+import re
+import sys
+
 from knxlens import decode, param_compare, params
 from knxlens.catalog import Catalog
 from knxlens.store import Store
+
 project, pa, pattern = sys.argv[1], sys.argv[2], sys.argv[3]
 mask = int(sys.argv[4], 0)
 s = Store("data/knxlens.sqlite"); c = Catalog(); c.add(project)

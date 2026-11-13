@@ -1,5 +1,8 @@
 """Zwei .knxproj auf XML-Ebene vergleichen (0.xml und project.xml), ohne Puid/LastUsedPuid/Attributreihenfolge."""
-import sys, zipfile, re
+import re
+import sys
+import zipfile
+
 from defusedxml import ElementTree as ET
 
 IGNORE = {"Puid", "LastUsedPuid", "CreatedBy", "ToolVersion"}

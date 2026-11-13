@@ -1,5 +1,7 @@
 """Referenz-.knxproj parsen und als JSON ablegen."""
-import json, sys
+import json
+import sys
+
 from xknxproject import XKNXProj
 
 proj = XKNXProj(sys.argv[1], password=(sys.argv[3] if len(sys.argv) > 3 else None), language="de-DE").parse()

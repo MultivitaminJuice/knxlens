@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -18,11 +18,10 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from xknx.telegram import GroupAddress
 
-from .. import websafety
-from .. import catalog, compare, decode, device, export, params, reference, traffic
+from .. import catalog, compare, decode, device, export, params, reference, traffic, websafety
+from ..model import Device
 from ..project.knxproj_io import export_knxproj
 from ..project.reconstruct import from_store
-from ..model import Device
 from ..report import MASK_NAMES
 from ..store import Store
 

@@ -122,7 +122,8 @@ def test_areas_and_lines(ed):
         ed.line_delete(1, 1)
     assert ed.line_delete(1, 1, force=True) == 1 and not ed.project.devices
     assert ed.area_delete(2) == 0 and all(l.area != 2 for l in ed.project.lines)
-    ed.undo(); ed.undo()
+    ed.undo()
+    ed.undo()
     assert ed.project.devices and any(l.area == 2 for l in ed.project.lines)
 
 
@@ -164,7 +165,8 @@ def test_download_flags_follow_changes(ed):
     assert load_state(d) == {"adr": True, "prg": True, "par": True, "grp": False, "cfg": True}
     ed.device_set_pa(d.uid, "1.1.7")
     assert not load_state(d)["adr"] and load_state(d)["par"]
-    ed.undo(); ed.undo()
+    ed.undo()
+    ed.undo()
     assert not needs_download(ed.project.devices[0])  # Rückgängig stellt die Kennzeichen wieder her
     new = ed.device_copy([d.uid], 1, 2)[0]
     assert not any(load_state(ed._device(new)).values())

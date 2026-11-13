@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from .. import params
 from . import Device
 

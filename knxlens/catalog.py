@@ -34,6 +34,11 @@ def _local(tag: str) -> str:
 
 
 def _children(elem, name: str):
+    """Alle Nachfahren (samt elem) mit diesem lokalen Namen. KNX-Dateien haben einen einzigen
+    Namensraum – dann sucht die schnelle C-Schleife direkt danach; sonst Vergleich je Element."""
+    tag = elem.tag
+    if tag.startswith("{"):
+        return elem.iter(tag[:tag.index("}") + 1] + name)
     return (c for c in elem.iter() if _local(c.tag) == name)
 
 

@@ -5,13 +5,13 @@ import zipfile
 
 import pytest
 from defusedxml import ElementTree as ET
+from test_catalog import APP, APPLICATION, HARDWARE, make_knxprod
 
 from knxlens.catalog import Application, Catalog, ObjectVariant
 from knxlens.model import Device as BusDevice
 from knxlens.project import Project
 from knxlens.project.knxproj_io import export_knxproj, import_knxproj
 from knxlens.project.reconstruct import co_ref, from_reconstruction
-from test_catalog import HARDWARE, APPLICATION, APP, make_knxprod
 
 NS = "http://knx.org/xml/project/20"
 
@@ -145,8 +145,8 @@ def test_reconstruction_to_knxproj(tmp_path):
 
 
 def test_add_products_merges_hardware(tmp_path, monkeypatch):
-    from knxlens.project.products import ProductError, add_products, project_catalog
     from knxlens.project import products as prod
+    from knxlens.project.products import ProductError, add_products, project_catalog
     monkeypatch.setattr(prod, "CACHE", tmp_path / "cache")
     p = import_knxproj(make_knxproj(tmp_path / "in.knxproj"))
     app2 = "M-0008_A-3000-10-BEEF"
@@ -175,3 +175,20 @@ def test_add_products_merges_hardware(tmp_path, monkeypatch):
         z.writestr("M-0008/Hardware.xml", HARDWARE)
     with pytest.raises(ProductError, match="Keine Applikation"):
         add_products(p, bad.read_bytes())
+
+
+def test_product_cache_prunes_old_folders(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from knxlens.project import products
+    monkeypatch.setattr(products, "CACHE", tmp_path / "cache")
+    old, fresh, unfinished = (tmp_path / "cache" / n for n in ("alt", "neu", "halb"))
+    for f in (old, fresh, unfinished):
+        f.mkdir(parents=True)
+    (old / ".complete").touch()
+    (fresh / ".complete").touch()
+    os.utime(old / ".complete", (time.time() - 40 * 86400,) * 2)
+    os.utime(unfinished, (time.time() - 40 * 86400,) * 2)
+    products.project_catalog(Project(name="leer"))  # legt den eigenen Ordner an und räumt auf
+    assert not old.exists() and fresh.exists() and unfinished.exists()

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_bcu1 import PA, bcu1_image, run_read
 
 from knxlens.web import create_app
-from test_bcu1 import PA, run_read, bcu1_image
 
 
 @pytest.fixture

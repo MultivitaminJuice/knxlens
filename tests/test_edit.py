@@ -1,11 +1,11 @@
 """Parameter bearbeiten: Kodierung, Prüfung, Setzen/Zurücksetzen mit Sichtbarkeit."""
 
 import pytest
+from test_params import APP, setup
 
 from knxlens import params
 from knxlens.project import Device
 from knxlens.project.edit import EditError, editor_item, set_param
-from test_params import APP, setup
 
 
 def dev():
@@ -73,6 +73,7 @@ def test_validation_errors(tmp_path):
 
 def test_orphans_and_rebind():
     from types import SimpleNamespace
+
     from knxlens.project import ComLink, Device
     from knxlens.project.edit import orphans, rebind_variants, unlink_orphans
     full = "M-0008_A-1-1-AAAA"

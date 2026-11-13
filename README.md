@@ -39,9 +39,17 @@ read-only. UI and docs are German.*
 
 Regressionsprüfung: `knxlens verify` misst je Gerät, wie gut Berechnung und gelesener
 Gerätespeicher übereinstimmen (Parameterbytes, Tabellen, ETS-Ladeabbild, simulierter Download,
-Leseseite), und vergleicht mit `verify-sollwerte.json` neben der Messdatenbank. Wird ein Gerät
-in einer Kennzahl schlechter, endet der Lauf mit Exit-Code 1 – vor Änderungen an `params.py`,
-`image.py`, `loadplan.py` oder `download.py` laufen lassen. Verbesserungen übernimmt `--update`.
+Leseseite, Prüfsummen-Einträge PID 27), und vergleicht mit `verify-sollwerte.json` neben der
+Messdatenbank. Wird ein Gerät in einer Kennzahl schlechter, endet der Lauf mit Exit-Code 1 – vor
+Änderungen an `params.py`, `image.py`, `loadplan.py` oder `download.py` laufen lassen.
+Verbesserungen übernimmt `--update`; `--rebaseline` setzt die Sollwerte neu (nach neuen
+Lesungen, wenn sich die Messgrundlage geändert hat).
+
+Download (in Vorbereitung): Der Editor zeigt je Gerät im Reiter *Download* den Ladeablauf,
+gleicht das berechnete Abbild mit dem zuletzt gelesenen Gerätespeicher ab, liest das Gerät
+auf Knopfdruck neu (nur lesende Dienste) und spielt den Komplett-Download im Simulator durch.
+Echtes Schreiben auf den Bus gibt es noch nicht; der Schreibschutz (`PlanGuard`) dafür lässt
+später nur die Speicherbereiche und Eigenschaften zu, die der berechnete Plan vorsieht.
 
 Sicherheit der Oberflächen: `knxlens edit` und `knxlens serve` lauschen auf 127.0.0.1, nehmen
 nur Anfragen an localhost/127.0.0.1/::1 an (Schutz gegen DNS-Rebinding) und weisen ändernde
@@ -76,6 +84,28 @@ erzeugt sonst Konfliktkopien („Datei 2“).
 Python ≥ 3.11. Auf macOS mit iCloud-synchronisiertem `~/Documents` die venv besser
 außerhalb anlegen (iCloud setzt das *hidden*-Flag auf `.pth`-Dateien, Python ≥ 3.13
 ignoriert sie dann).
+
+## Entwicklung
+
+```bash
+.venv/bin/ruff check .          # Linter (Einstellungen in pyproject.toml)
+.venv/bin/pytest                # Unit- und API-Tests
+.venv/bin/knxlens verify data/projekt.knxlens   # gegen echte Geräte (nur lokal, braucht data/)
+```
+
+Oberflächentests (`tests/test_ui.py`) bedienen den gebauten Editor in einem kopflosen
+Chromium. Ohne Playwright werden sie übersprungen; einrichten mit
+`.venv/bin/pip install playwright && .venv/bin/python -m playwright install chromium-headless-shell`.
+
+Aufbau des Editors: `knxlens/editor/__init__.py` baut die App (Hostprüfung, Projekt-Sperre),
+die Endpunkte liegen nach Bereichen in `routes_project.py`, `routes_tree.py`,
+`routes_device.py`, `routes_download.py` und `routes_monitor.py`, der gemeinsame Zustand in
+`state.py`. Produktdaten lädt der Editor beim Start im Hintergrund; die Seite ist sofort da.
+
+Die gebaute Oberfläche (`knxlens/web/static/editor`) liegt im Repo, damit `pip install` ohne
+Node funktioniert. Nach Änderungen in `frontend/` neu bauen und mitcommitten; die CI
+(GitHub Actions: Linter, Tests auf Python 3.11 und 3.14, Oberflächentests, Frontend-Build)
+schlägt fehl, wenn der Build nicht zum Quelltext passt.
 
 ## Produktdaten
 

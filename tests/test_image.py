@@ -1,8 +1,9 @@
 """Download-Abbild: Parameterspeicher und Tabellen (Regeln an 40 Geräten der Testanlage geprüft)."""
 
+from test_params import APP, SEG, setup
+
 from knxlens.image import param_image, put, tables
 from knxlens.project import ComLink, Device
-from test_params import APP, SEG, setup
 
 
 def test_param_image_rules(tmp_path):
@@ -114,6 +115,7 @@ def test_values_belong_to_the_ref(tmp_path):
 
 def test_object_table_system7():
     from types import SimpleNamespace
+
     from knxlens.image import object_table
     from knxlens.params import Segment
     full = "M-0083_A-0001-01-AAAA"

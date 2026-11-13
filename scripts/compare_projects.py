@@ -1,6 +1,8 @@
 """Rekonstruiertes Projekt gegen ein aus der ETS importiertes Projekt vergleichen."""
-import re, sys
+import re
+import sys
 from collections import Counter
+
 from knxlens import catalog, decode, device, params
 from knxlens.project.knxproj_io import import_knxproj
 from knxlens.project.reconstruct import from_reconstruction

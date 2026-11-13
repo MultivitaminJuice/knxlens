@@ -124,7 +124,7 @@ def param_image(ap: AppParams, values: dict[str, str]) -> ParamImage:
         if value is not None:
             chosen[(tref.param.id, ctx.instance)] = (tref, ctx, tref.id, value)
 
-    for (pid_, inst), (ref, ctx, iid, value) in chosen.items():
+    for ref, ctx, iid, value in chosen.values():
         _write(img, ap, ref.param, ctx, value, iid, ref.text)
     return img
 
@@ -324,7 +324,8 @@ def check_against_store(ap: AppParams | None, device, store, mask: int | None, n
         if n is not None and link.gas:
             linked.add(n)
     if ap is not None and mask == SYSTEM_B:
-        from .decode import _objects as objs_, _table as table_
+        from .decode import _objects as objs_
+        from .decode import _table as table_
         from .device import OT_GROUP_OBJECT_TABLE
         entries = table_(raw, objs_(raw), OT_GROUP_OBJECT_TABLE, 2, 2)
         if entries is not None:
