@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager, contextmanager
 
 from xknx import XKNX
 from xknx.io import ConnectionConfig, ConnectionType
-from xknx.telegram import Telegram, apci, tpci
+from xknx.telegram import IndividualAddress, Telegram, apci, tpci
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,9 @@ OPTIONAL_APCI: dict[str, tuple[type[apci.APCI], ...]] = {
     # The writing counterparts (IndividualAddressWrite, …SerialNumberWrite) stay blocked.
     "progmode": (apci.IndividualAddressRead,),
 }
+# Writing services of a download. Never in `allowed`: only via permit_download(pa), and then
+# only connection-oriented to that one individual address (IndividualAddressWrite stays blocked).
+DOWNLOAD_APCI: tuple[type[apci.APCI], ...] = (apci.MemoryWrite, apci.PropertyValueWrite, apci.Restart)
 # Reine Transportsteuerung ohne Nutzdaten.
 ALLOWED_CONTROL_TPCI = (tpci.TConnect, tpci.TDisconnect, tpci.TAck, tpci.TNak)
 
@@ -63,18 +66,34 @@ class ReadOnlyGuard:
             cls for key in allow for cls in OPTIONAL_APCI[key]
         )
         self.sent = 0
+        self.write_target: IndividualAddress | None = None  # set only inside permit_download()
 
-    def check(self, t_pci: tpci.TPCI, payload: apci.APCI | None) -> None:
+    def check(self, t_pci: tpci.TPCI, payload: apci.APCI | None, dst=None) -> None:  # noqa: ANN001
         if payload is None:
             if isinstance(t_pci, ALLOWED_CONTROL_TPCI):
                 return
             raise WriteBlocked(f"Steuer-TPCI ohne Payload nicht erlaubt: {t_pci}")
         if isinstance(t_pci, ALLOWED_CONTROL_TPCI):
             raise WriteBlocked(f"Steuer-TPCI mit Payload: {t_pci} {payload}")
+        # Download: writing services only connection-oriented and only to the one released device
+        if (type(payload) in DOWNLOAD_APCI and self.write_target is not None
+                and isinstance(t_pci, tpci.TDataConnected) and dst == self.write_target):
+            return
         # isinstance genügt nicht: Write-Klassen erben nicht von Read-Klassen,
         # aber wir verlangen trotzdem exakte Typgleichheit.
         if type(payload) not in self.allowed:
             raise WriteBlocked(f"Dienst nicht erlaubt: {type(payload).__name__}")
+
+    @contextmanager
+    def permit_download(self, pa: str):  # noqa: ANN201
+        """Temporarily allow memory/property writes and restart, to this one device only."""
+        if self.write_target is not None:
+            raise RuntimeError("Es läuft bereits ein Download")
+        self.write_target = IndividualAddress(pa)
+        try:
+            yield
+        finally:
+            self.write_target = None
 
     @contextmanager
     def permit(self, *keys: str):  # noqa: ANN201
@@ -90,7 +109,7 @@ class ReadOnlyGuard:
             self.allowed = before
 
     def check_telegram(self, telegram: Telegram) -> None:
-        self.check(telegram.tpci, telegram.payload)
+        self.check(telegram.tpci, telegram.payload, telegram.destination_address)
 
     def install(self, xknx: XKNX) -> None:
         """Hängt geprüfte Unterklassen ein (xknx nutzt __slots__, daher Klassentausch)."""
@@ -110,7 +129,7 @@ class ReadOnlyGuard:
             __slots__ = ()
 
             async def send_cemi(self, cemi):  # noqa: ANN001
-                guard.check(cemi.data.tpci, cemi.data.payload)
+                guard.check(cemi.data.tpci, cemi.data.payload, getattr(cemi.data, "dst_addr", None))
                 return await super().send_cemi(cemi)
 
         handler.__class__ = GuardedCEMIHandler

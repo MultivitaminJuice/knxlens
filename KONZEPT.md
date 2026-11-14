@@ -236,6 +236,23 @@ Speicherbereich nicht. Den Zustand liefert bei 070x zusätzlich auch PID 5 – l
 also beide Wege. Ob das *Schreiben* der Ereignisse bei 070x nur über `0x0104` geht oder
 auch über PID 5, lässt sich lesend nicht klären: am Testgerät prüfen.
 
+**Erster Download über den Bus, 14.11.2026 (1.1.83, MDT Tasterinterface, 0705):**
+`knxlens download … --write` mit unveränderten Daten.
+
+- Das Gerät quittiert die 11-Byte-Datensätze an `0x0104` (T_ACK), **führt sie aber nicht
+  aus** – ohne und mit `A_Authorize` (Standardschlüssel, Stufe 0). Zustand blieb „geladen“,
+  nichts geschrieben.
+- Über **PID 5** (10 Byte: Ereignis, dann dieselben Felder ohne Automaten-Nibble und
+  Segment-ID, MP §3.31.3.4) läuft der komplette Ablauf: 22 Schritte, 25 Schreibbefehle,
+  jeder Block rückgelesen, nach dem Neustart 1296/1296 Byte wie vorher, Adress-,
+  Assoziationstabelle und Applikation „geladen“. Der Neustart wird wie erwartet nicht
+  bestätigt.
+- Deckt sich mit xknx-editor (github.com/XKNX/xknx-editor, GPL-2.0, nur Fakten): dort geht
+  die Ladesteuerung bei allen Masken einschließlich 0700/0701/0705 über PID 5, der
+  Speicherweg gilt als veraltet und ungenutzt.
+- `buswrite.py` entscheidet beim ersten Ereignis (Entladen eines geladenen Automaten):
+  ändert der Speicherweg nichts, wird PID 5 genommen. Ein ignoriertes Ereignis ändert nichts.
+
 ## Risiken
 
 - **Speicherschutz:** Manche Geräte verweigern Memory-Read ohne Authorize →

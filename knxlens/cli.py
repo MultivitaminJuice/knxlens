@@ -278,6 +278,70 @@ def cmd_simulate(args: argparse.Namespace) -> None:
     print(f"\nGesamt: {ok} Geräte simuliert, {failed} abgebrochen; {total_eq} Byte gleich, {total_ne} abweichend")
 
 
+def cmd_download(args: argparse.Namespace) -> None:
+    """Gerät prüfen und sichern; mit --write den Download ausführen (nur 070x, nur dieselbe Applikation)."""
+    from defusedxml import ElementTree as ET
+
+    from . import buswrite
+    from .catalog import _local
+    from .download import DownloadError
+    from .loadplan import device_plan
+    from .params import AppParams, _read_member
+    from .project import Project
+    from .project.products import app_for, project_catalog
+    from .project.reconstruct import object_number
+
+    if args.write and args.confirm != args.pa:
+        raise SystemExit(f"Schreiben nur mit --confirm {args.pa} (die Adresse des Geräts noch einmal)")
+    p = Project.load(args.project)
+    d = p.device(args.pa)
+    if d is None:
+        raise SystemExit(f"Gerät {args.pa} nicht im Projekt")
+    app = app_for(project_catalog(p), d.app_id)
+    if app is None:
+        raise SystemExit("Keine Produktdaten zu diesem Gerät")
+    prog = next(e for e in ET.fromstring(_read_member(app.source_path, app.member)).iter()
+                if _local(e.tag) == "ApplicationProgram")
+    ident = buswrite.Identity(int(app.key[2:6], 16), int(prog.get("ApplicationNumber")),
+                              int(prog.get("ApplicationVersion")), int(prog.get("PeiType", "0")))
+    mask = int((app.mask or "MV-0").removeprefix("MV-"), 16)
+    steps = device_plan(AppParams(app), d, p.products.get("knx_master.xml"), "all",
+                        lambda l: object_number(app, l.ref))
+    store = Store(args.db)
+    backup_dir = Path(args.db).parent / "backups"
+
+    def progress(i: int, n: int, text: str) -> None:
+        print(f"  {i:2}/{n} {text}", flush=True)
+
+    async def go() -> buswrite.Report:
+        async with bus.connect(args.gateway) as xknx:
+            store.start_session(args.gateway, str(xknx.current_address), f"download {args.pa}" + (" write" if args.write else " check"))
+            return await buswrite.run(xknx, store, args.pa, mask, ident, steps, backup_dir, args.write, d.serial,
+                                      progress)
+
+    print(f"{d.pa} {d.name or app.name} – {app.full_id}, {len(steps)} Schritte")
+    try:
+        rep = asyncio.run(go())
+    except DownloadError as e:
+        raise SystemExit(f"Abgebrochen, nichts geschrieben: {e}") from None
+    for c in rep.checks:
+        print(f"  ✓ {c}")
+    print(f"  Sicherung: {rep.backup}")
+    print(f"  Plan schreibt {rep.planned} Byte, davon {rep.changed} anders als im Gerät")
+    if not args.write:
+        print("Nur geprüft und gesichert – zum Schreiben --write --confirm " + args.pa)
+        return
+    if rep.error:
+        print(f"  ✗ ABBRUCH: {rep.error}")
+    if rep.result:
+        print(f"  {rep.result.steps} Schritte, {rep.result.writes} Schreibbefehle, {rep.result.verified} Blöcke rückgelesen")
+    names = buswrite.STATE_NAMES
+    print("  Ladezustand danach: " + " ".join(names.get(s, "?") if s is not None else "?" for s in rep.states_after))
+    print(f"  Nach dem Neustart gelesen: {rep.after.get('gleich', 0)} Byte wie erwartet, {rep.after.get('abweichend', 0)} abweichend")
+    if rep.error or rep.after.get("abweichend") or rep.states_after[:3] != [1, 1, 1]:
+        raise SystemExit(1)
+
+
 def cmd_verify(args: argparse.Namespace) -> None:
     """Kennzahlen je Gerät messen und mit den Sollwerten vergleichen; Exit-Code 1 bei Verschlechterung."""
     import time
@@ -424,6 +488,13 @@ def main() -> None:
     s.add_argument("pa", nargs="*", help="nur diese Geräte")
     s.add_argument("--kind", default="all", choices=["all", "par", "grp"])
     s.set_defaults(func=cmd_simulate)
+
+    s = sub.add_parser("download", help="Gerät prüfen und sichern; mit --write den Download ausführen (schreibt!)")
+    s.add_argument("project", help="Projektdatei *.knxlens")
+    s.add_argument("pa", help="genau ein Gerät")
+    s.add_argument("--write", action="store_true", help="wirklich schreiben (sonst nur prüfen und sichern)")
+    s.add_argument("--confirm", default="", help="zum Schreiben die Adresse des Geräts wiederholen")
+    s.set_defaults(func=cmd_download)
 
     s = sub.add_parser("verify", help="Regressionsprüfung: Berechnung gegen gelesene Geräte, Vergleich mit Sollwerten")
     s.add_argument("project", help="Projektdatei *.knxlens (mit den ETS-Werten der gelesenen Anlage)")

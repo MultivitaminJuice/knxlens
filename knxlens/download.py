@@ -43,7 +43,8 @@ class Target:
     async def write_prop(self, obj: int, pid: int, data: bytes, start: int = 1) -> None: ...
     async def read_mem(self, address: int, length: int) -> bytes | None: ...
     async def write_mem(self, address: int, data: bytes) -> None: ...
-    async def alloc_abs(self, lsm: int, address: int, size: int) -> None: ...
+    async def alloc_abs(self, lsm: int, address: int, size: int, attrs: dict | None = None) -> None: ...
+    async def task_segment(self, lsm: int, address: int) -> None: ...  # Startadresse (070x: AllocAbsTaskSeg)
     async def alloc_rel(self, lsm: int, size: int, fill: int) -> int: ...  # liefert Basisadresse
     async def task_ctrl(self, kind: str, lsm: int, attrs: dict) -> None: ...  # ältere Masken: Steuerzeiger
     async def find_object(self, object_type: int) -> int: ...  # Index eines Interface-Objekts nach Typ
@@ -120,11 +121,17 @@ class SimTarget(Target):
             self.written.add(address + i)
         self.log.append(f"mem {address:#06x} ← {len(data)} Byte")
 
-    async def alloc_abs(self, lsm: int, address: int, size: int) -> None:
+    async def alloc_abs(self, lsm: int, address: int, size: int, attrs: dict | None = None) -> None:
         self._need()
         if self.states.get(lsm) != "loading":
             raise DownloadError(f"Segment für LSM {lsm} außerhalb des Ladens")
         self.log.append(f"alloc abs lsm {lsm} {address:#06x}+{size}")
+
+    async def task_segment(self, lsm: int, address: int) -> None:
+        self._need()
+        if self.states.get(lsm) != "loading":
+            raise DownloadError(f"Startadresse für LSM {lsm} außerhalb des Ladens")
+        self.log.append(f"task segment lsm {lsm} {address:#06x}")
 
     async def find_object(self, object_type: int) -> int:
         for (obj, pid), data in self.props.items():
@@ -207,11 +214,11 @@ async def execute(steps: list[Step], target: Target, verify: bool = True, progre
                 raise DownloadError(f"Prüfung fehlgeschlagen: {s.text} (Gerät: {got.hex()})")
         elif s.op == "AbsSegment":
             abs_segments.setdefault(lsm, []).append(dict(a))
-            await target.alloc_abs(lsm, int(a["Address"]), int(a["Size"]))
+            await target.alloc_abs(lsm, int(a["Address"]), int(a["Size"]), dict(a))
             if s.chunks:
                 await write(int(a["Address"]), s.chunks, s.text)
         elif s.op == "TaskSegment":
-            pass  # Startadresse: Teil der Segmentverwaltung des Geräts
+            await target.task_segment(lsm, int(a["Address"]))
         elif s.op == "RelSegment":
             rel_base[lsm] = await target.alloc_rel(lsm, int(a["Size"]), int(a.get("Fill", "0")))
         elif s.op == "WriteRelMem":
@@ -456,10 +463,15 @@ class PlanGuard(Target):
             self._block(f"Property {obj}/{pid}")
         await self.target.write_prop(obj, pid, data, start)
 
-    async def alloc_abs(self, lsm: int, address: int, size: int) -> None:
+    async def alloc_abs(self, lsm: int, address: int, size: int, attrs: dict | None = None) -> None:
         if lsm not in self.lsms:
             self._block(f"Segment für LSM {lsm}")
-        await self.target.alloc_abs(lsm, address, size)
+        await self.target.alloc_abs(lsm, address, size, attrs)
+
+    async def task_segment(self, lsm: int, address: int) -> None:
+        if lsm not in self.lsms:
+            self._block(f"Startadresse für LSM {lsm}")
+        await self.target.task_segment(lsm, address)
 
     async def alloc_rel(self, lsm: int, size: int, fill: int) -> int:
         if lsm not in self.lsms:
