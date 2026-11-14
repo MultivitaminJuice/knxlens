@@ -196,6 +196,32 @@ Konfigurationsbyte der Gruppenobjekte an System-B-Geräten der Testanlage belegt
 **Erste Aufgabe an der Zielanlage:** ein Gerät mit bekannter Funktion lesen und
 Ergebnis von Hand plausibilisieren, bevor der Rest gelesen wird.
 
+## Ladesteuerung beim Schreiben (für E4)
+
+Noch nicht am Gerät geprüft. Quelle: KNXBench (github.com/KNXBench-Labs/KNXBench,
+AGPL-3.0 – nur die Fakten übernommen, kein Code), dort mit Verweis auf KNX-Spezifikation
+MP §3.31 und Test Suite Supplement G; Downloads an vier Geräten mit Maske 0701 mit
+Rücklesen belegt (Stand Alpha 21, 11/2026).
+
+- **Masken 0700/0701/0705/070F (BIM M112):** Die Ladezustandsautomaten liegen im
+  Speicher, nicht als Property. Ein Ereignis ist ein `A_Memory_Write` von 11 Byte an
+  `0x0104`; erstes Byte = (Automat << 4) | Ereignis (Automat: 1 Adresstabelle,
+  2 Assoziationstabelle, 3 Applikation, 4 PEI). Den Zustand danach je Automat als
+  ein Byte von `0xB6EA`–`0xB6ED` lesen.
+- **Maske 07B0 (System B):** über `PID_LOAD_STATE_CONTROL` (PID 5) der Ladeobjekte,
+  10 Byte je Ereignis – so wie in `download.py` angenommen.
+- **TaskCtrl1** (Ereignis 3 „zusätzliche Ladesteuerung“, Segmenttyp 4), nur für die
+  Applikation: `L3 04 00 AAAA NN` und fünf Nullbytes (AAAA Adresse der
+  Interface-Objekte, NN Anzahl). Passt zu unserer Annahme in `download.py`; bei 070x
+  geht der Datensatz an `0x0104` statt an PID 5.
+- **BCU2 (0x0020/0x0021/0x0025):** auch in KNXBench nicht abgedeckt. Für die
+  Zielanlage (SA.8.16, DIM4FU-2, BE9F) selbst aus der Spezifikation erarbeiten.
+
+Für den Bus-Schreibweg heißt das: `Target.load_event` und `Target.task_ctrl` je nach
+Maske als Speicherschreiben (070x) oder Property-Schreiben (07B0) umsetzen. Zuerst am
+Testgerät nur lesend prüfen: Zustand an `0xB6EA`–`0xB6ED` lesen und mit dem erwarteten
+Zustand (geladen) vergleichen.
+
 ## Risiken
 
 - **Speicherschutz:** Manche Geräte verweigern Memory-Read ohne Authorize →
