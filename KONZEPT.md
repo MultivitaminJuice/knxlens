@@ -198,7 +198,7 @@ Ergebnis von Hand plausibilisieren, bevor der Rest gelesen wird.
 
 ## Ladesteuerung beim Schreiben (für E4)
 
-Noch nicht am Gerät geprüft. Quelle: KNXBench (github.com/KNXBench-Labs/KNXBench,
+Lesend am Gerät bestätigt (siehe unten), Schreiben ungeprüft. Quelle: KNXBench (github.com/KNXBench-Labs/KNXBench,
 AGPL-3.0 – nur die Fakten übernommen, kein Code), dort mit Verweis auf KNX-Spezifikation
 MP §3.31 und Test Suite Supplement G; Downloads an vier Geräten mit Maske 0701 mit
 Rücklesen belegt (Stand Alpha 21, 11/2026).
@@ -218,9 +218,22 @@ Rücklesen belegt (Stand Alpha 21, 11/2026).
   Zielanlage (SA.8.16, DIM4FU-2, BE9F) selbst aus der Spezifikation erarbeiten.
 
 Für den Bus-Schreibweg heißt das: `Target.load_event` und `Target.task_ctrl` je nach
-Maske als Speicherschreiben (070x) oder Property-Schreiben (07B0) umsetzen. Zuerst am
-Testgerät nur lesend prüfen: Zustand an `0xB6EA`–`0xB6ED` lesen und mit dem erwarteten
-Zustand (geladen) vergleichen.
+Maske als Speicherschreiben (070x) oder Property-Schreiben (07B0) umsetzen.
+
+**Lesend geprüft 14.11.2026 (Testanlage, nichts geschrieben):**
+
+| Gerät | Maske | `0xB6EA`–`0xB6ED` | PID 5, Objekte 1–3 |
+|---|---|---|---|
+| 1.1.11, 1.1.91 | 0701 | 01 01 01 00 | 01 01 01 |
+| 1.1.21 | 0705 | 01 01 01 00 | 01 01 01 |
+| 1.1.152 (B.E.G.) | 0705 | 01 01 01 01 | 01 01 01 |
+| 1.1.81 | 07B0 | keine Antwort | 01 01 01 |
+
+Bei 070x steht der Zustand wie angegeben im Speicher (01 = geladen; Adress-,
+Assoziationstabelle, Applikation geladen, PEI meist entladen). Bei System B gibt es den
+Speicherbereich nicht. Den Zustand liefert bei 070x zusätzlich auch PID 5 – lesend gehen
+also beide Wege. Ob das *Schreiben* der Ereignisse bei 070x nur über `0x0104` geht oder
+auch über PID 5, lässt sich lesend nicht klären: am Testgerät prüfen.
 
 ## Risiken
 
