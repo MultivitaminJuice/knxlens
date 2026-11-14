@@ -14,13 +14,18 @@ import logging
 import os
 import socket
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 from xknx import XKNX
 from xknx.io import ConnectionConfig, ConnectionType
 from xknx.telegram import Telegram, apci, tpci
 
 log = logging.getLogger(__name__)
+
+
+#: Guard of each open connection (key: id of the XKNX instance), so code sharing a
+#: connection can use guard.permit(). Entries are removed when the connection closes.
+GUARDS: dict[int, ReadOnlyGuard] = {}
 
 
 class WriteBlocked(RuntimeError):
@@ -40,6 +45,9 @@ ALLOWED_APCI: tuple[type[apci.APCI], ...] = (
 OPTIONAL_APCI: dict[str, tuple[type[apci.APCI], ...]] = {
     "authorize": (apci.AuthorizeRequest,),
     "group_read": (apci.GroupValueRead,),
+    # Broadcast read: only devices in programming mode answer with their address.
+    # The writing counterparts (IndividualAddressWrite, …SerialNumberWrite) stay blocked.
+    "progmode": (apci.IndividualAddressRead,),
 }
 # Reine Transportsteuerung ohne Nutzdaten.
 ALLOWED_CONTROL_TPCI = (tpci.TConnect, tpci.TDisconnect, tpci.TAck, tpci.TNak)
@@ -67,6 +75,19 @@ class ReadOnlyGuard:
         # aber wir verlangen trotzdem exakte Typgleichheit.
         if type(payload) not in self.allowed:
             raise WriteBlocked(f"Dienst nicht erlaubt: {type(payload).__name__}")
+
+    @contextmanager
+    def permit(self, *keys: str):  # noqa: ANN201
+        """Temporarily allow optional services on an existing connection (e.g. the monitor's)."""
+        unknown = set(keys) - OPTIONAL_APCI.keys()
+        if unknown:
+            raise ValueError(f"Unbekannte Freigabe: {unknown}")
+        before = self.allowed
+        self.allowed = before + tuple(cls for key in keys for cls in OPTIONAL_APCI[key])
+        try:
+            yield
+        finally:
+            self.allowed = before
 
     def check_telegram(self, telegram: Telegram) -> None:
         self.check(telegram.tpci, telegram.payload)
@@ -191,9 +212,11 @@ async def connect(
     guard = ReadOnlyGuard(allow)
     guard.install(xknx)
     await xknx.start()
+    GUARDS[id(xknx)] = guard  # only once connected, so a failed start leaves nothing behind
     log.info("Verbunden über %s als %s", gateway_ip, xknx.current_address)
     try:
         yield xknx
     finally:
+        GUARDS.pop(id(xknx), None)
         await xknx.stop()
         log.info("Getrennt, %d Telegramme gesendet", guard.sent)

@@ -177,6 +177,8 @@ export const api = {
     send<{ state: string }>('POST', '/api/monitor/start', { gateway, route_back }),
   monitorStop: () => send<{ state: string }>('POST', '/api/monitor/stop'),
   monitorClear: () => send<{ ok: boolean }>('POST', '/api/monitor/clear'),
+  progmode: (gateway: string, route_back: boolean | null = null) =>
+    send<{ devices: { pa: string; uid: string | null; name: string }[] }>('POST', '/api/monitor/progmode', { gateway, route_back }),
   files: () => get<{ folder: string; files: ProjectFile[] }>('/api/files'),
   openProject: (path: string, force = false) => send<ProjectInfo>('POST', '/api/project/open', { path, force }),
   newProject: (name: string, force = false) => send<ProjectInfo>('POST', `/api/project/new?force=${force}`, { name }),

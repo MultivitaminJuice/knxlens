@@ -35,6 +35,28 @@ async def cmd_probe(args: argparse.Namespace) -> None:
     print(args.pa, result, f"0x{mask:04X}" if mask is not None else "")
 
 
+async def cmd_progmode(args: argparse.Namespace) -> None:
+    """List devices in programming mode; with --wait keep asking so buttons can be pressed meanwhile."""
+    import time
+    store = Store(args.db)
+    masks = dict(store.found_devices())
+    seen: set[str] = set()
+    async with bus.connect(args.gateway) as xknx:
+        store.start_session(args.gateway, str(xknx.current_address), "progmode")
+        deadline = time.monotonic() + max(args.wait, 3)
+        if args.wait > 3:
+            print(f"Frage {args.wait:.0f} s lang nach Geräten im Programmiermodus – jetzt Prog-Tasten drücken …", flush=True)
+        while time.monotonic() < deadline:
+            for pa in await scan.progmode(xknx):
+                if pa not in seen:
+                    seen.add(pa)
+                    mask = masks.get(pa)
+                    known = f"Maske 0x{mask:04X}" if mask is not None else "nicht im Scan"
+                    print(f"{pa}  Programmiermodus an  ({known})", flush=True)
+    if not seen:
+        print("Kein Gerät im Programmiermodus.")
+
+
 async def cmd_read(args: argparse.Namespace) -> None:
     store = Store(args.db)
     masks = dict(store.found_devices())
@@ -335,6 +357,10 @@ def main() -> None:
     s = sub.add_parser("probe", help="eine Adresse prüfen")
     s.add_argument("pa")
     s.set_defaults(func=cmd_probe)
+
+    s = sub.add_parser("progmode", help="Geräte im Programmiermodus finden (nur lesend)")
+    s.add_argument("--wait", type=float, default=3, help="so lange wiederholt fragen (Sekunden)")
+    s.set_defaults(func=cmd_progmode)
 
     s = sub.add_parser("scan", help="Linie scannen")
     s.add_argument("line", help="z. B. 1.1")

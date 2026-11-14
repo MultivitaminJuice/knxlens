@@ -22,6 +22,7 @@ from xknx.exceptions import (
 )
 from xknx.telegram import IndividualAddress, apci
 
+from . import bus
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -40,6 +41,23 @@ async def probe(xknx: XKNX, pa: IndividualAddress) -> tuple[str, int | None]:
     except ManagementConnectionError as err:
         log.debug("%s: %s", pa, err)
         return "none", None
+
+
+async def progmode(xknx: XKNX, timeout: float = 3.0) -> list[str]:
+    """Individual addresses of all devices currently in programming mode.
+
+    Sends one broadcast A_IndividualAddress_Read (read-only; only devices with the
+    programming LED on answer) and collects answers for `timeout` seconds. The service
+    is allowed on this connection only for the duration of the call.
+    """
+    from xknx.management.procedures import nm_individual_address_read
+
+    guard = bus.GUARDS.get(id(xknx))
+    if guard is None:
+        raise RuntimeError("Verbindung ohne ReadOnlyGuard – nur über bus.connect verbinden")
+    with guard.permit("progmode"):
+        found = await nm_individual_address_read(xknx, timeout=timeout)
+    return sorted({str(a) for a in found}, key=lambda a: [int(x) for x in a.split(".")])
 
 
 async def scan_line(

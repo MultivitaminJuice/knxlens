@@ -201,3 +201,25 @@ def test_shared_connection_reuses_monitor():
         assert asyncio.run(use("10.0.0.2")) == "eigene" and opened == [1]  # anderes Interface: eigene Verbindung
     finally:
         busmon.bus.connect = orig
+
+
+def test_progmode_maps_devices(client, monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from knxlens import scan
+    from knxlens.editor import routes_monitor
+
+    @asynccontextmanager
+    async def fake_connection(monitor, gw, route_back=None):
+        assert gw == "192.168.1.10"
+        yield object()
+
+    async def fake_progmode(xknx, timeout=3.0):
+        return ["1.1.5", "1.1.77"]
+
+    monkeypatch.setattr(routes_monitor, "shared_connection", fake_connection)
+    monkeypatch.setattr(scan, "progmode", fake_progmode)
+    r = client.post("/api/monitor/progmode", json={"gateway": "192.168.1.10"}).json()
+    assert r["devices"] == [{"pa": "1.1.5", "uid": "P-0123-0_DI-1", "name": "Taster Flur"},
+                            {"pa": "1.1.77", "uid": None, "name": ""}]
+    assert client.post("/api/monitor/progmode", json={"gateway": ""}).status_code == 422

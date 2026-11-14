@@ -6,12 +6,12 @@ from fastapi import HTTPException
 
 from ..project.reconstruct import catalog_key as _catalog_key
 from ..traffic import format_value
-from .busmon import SERVICES
-from .state import MonitorIn, _dpt
+from .busmon import SERVICES, shared_connection
+from .state import MonitorIn, ReadIn, _dpt
 
 
 def register(app, ctx) -> None:
-    state, monitor, gateway = ctx.state, ctx.monitor, ctx.gateway
+    state, monitor, gateway, locked = ctx.state, ctx.monitor, ctx.gateway, ctx.locked
 
     @app.get("/api/monitor")
     def monitor_rows(since: int = 0, limit: int = 2000):
@@ -58,3 +58,21 @@ def register(app, ctx) -> None:
     def monitor_clear():
         monitor.clear()
         return {"ok": True}
+
+    @app.post("/api/monitor/progmode")
+    async def progmode(body: ReadIn):
+        """Devices in programming mode (one broadcast read, ~3 s), mapped to project devices."""
+        from .. import scan
+        gw = (body.gateway or monitor.gateway or gateway).strip()
+        if not gw:
+            raise HTTPException(422, "IP-Adresse des KNX-IP-Interfaces fehlt")
+        try:
+            async with shared_connection(monitor, gw, body.route_back) as xknx:
+                found = await scan.progmode(xknx)
+        except Exception as e:  # noqa: BLE001 - bus errors belong in the UI
+            raise HTTPException(502, f"Abfrage fehlgeschlagen: {e}") from None
+        async with locked():  # mapping reads the project like every other request
+            by_pa = {d.pa: d for d in state.project.devices if d.pa}
+            return {"devices": [{"pa": pa, "uid": by_pa[pa].uid if pa in by_pa else None,
+                                 "name": (by_pa[pa].name or state.product_name(by_pa[pa])) if pa in by_pa else ""}
+                                for pa in found]}

@@ -59,6 +59,28 @@ async function disconnect() {
   await api.monitorStop()
   await poll()
 }
+// Find devices whose programming LED is on (one read-only broadcast, ~3 s)
+const searching = ref(false)
+async function findProgmode() {
+  searching.value = true
+  try {
+    const { devices } = await api.progmode(gateway.value.trim(), routeBackValue(routeMode.value))
+    if (!devices.length) {
+      store.notify('info', 'Kein Gerät im Programmiermodus – Prog-Taste drücken und erneut suchen')
+      return
+    }
+    for (const d of devices) {
+      if (d.uid) store.notify('success', `${d.pa} ${d.name}: Programmiermodus an`)
+      else store.notify('warning', `${d.pa}: Programmiermodus an – nicht im Projekt`)
+    }
+    const first = devices.find((d) => d.uid)
+    if (first?.uid) await store.reveal?.('topology', first.uid)
+  } catch (e) {
+    store.notify('error', e instanceof ApiError ? e.message : String(e))
+  } finally {
+    searching.value = false
+  }
+}
 async function clear() {
   await api.monitorClear()
   rows.value = []
@@ -108,6 +130,8 @@ const stateLabel = computed(() => ({
       <NButton v-if="state !== 'verbunden' && state !== 'verbinde'" size="small" type="primary" :loading="busy" :disabled="!gateway.trim()" @click="connect">Verbinden</NButton>
       <NButton v-else size="small" @click="disconnect">Trennen</NButton>
       <span class="state" :class="state" :title="state === 'verbunden' && routeWhy ? `Route-Back ${routeBack ? 'an' : 'aus'}: ${routeWhy}` : ''">{{ stateLabel }}</span>
+      <NButton size="small" :loading="searching" :disabled="!gateway.trim()"
+               title="Geräte mit leuchtender Prog-LED finden (nur lesend)" @click="findProgmode">Prog-Taste suchen</NButton>
       <span class="spacer" />
       <label class="pause"><NSwitch v-model:value="paused" size="small" /> Pause</label>
       <NButton size="small" quaternary @click="clear">Leeren</NButton>
