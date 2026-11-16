@@ -14,6 +14,16 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+# Bus log in /var/lib/ts-knx-relay; the router must keep running whatever the relay does.
+StateDirectory=ts-knx-relay
+MemoryMax=96M
+CPUQuota=50%
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+LogRateLimitIntervalSec=60
+LogRateLimitBurst=30
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target

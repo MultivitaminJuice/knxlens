@@ -20,7 +20,7 @@ Mac (knxlens) ──Tailscale──► ts-router (Odroid, eth0 per DHCP) ──L
 | `device/setup.sh` | Odroid | Tailscale installieren und einrichten (idempotent) |
 | `device/bin/ts-advertise-routes` | Odroid | Subnetz des Default-Interface erkennen und anbieten |
 | `device/bin/ts-watchdog` | Odroid | Verbindung prüfen, gestuft reparieren |
-| `device/bin/ts-knx-relay` | Odroid | KNXnet/IP-Relay auf der Tailscale-Adresse, für Interfaces ohne Route-Back |
+| `device/bin/ts-knx-relay` | Odroid | KNXnet/IP-Relay auf der Tailscale-Adresse, für Interfaces ohne Route-Back; Busmitschnitt |
 | `device/etc/default/ts-router` | Odroid | Einstellungen (feste Routen, 4via6, Watchdog) |
 | `device/systemd/*` | Odroid | Timer, Services, Restart- und Watchdog-Drop-ins |
 | `tools/knx-probe.py` | Mac | KNXnet/IP-Interface per Unicast abfragen (Test für UDP 3671) |
@@ -268,6 +268,62 @@ Route-Back. Prüfen: `knx-probe.py <interface-ip>` vom Mac – keine Antwort, ab
 mit `E_NO_MORE_CONNECTIONS`, ist der Tunnel belegt – durch einen anderen Client im Kundennetz
 (Visualisierung, Server) oder einen hängengebliebenen Tunnel, der nach 120 s ohne
 Lebenszeichen verfällt.
+
+### Busmitschnitt im Relay
+
+`ts-knx-relay` schreibt den Busverkehr mit (`KNX_LOG="yes"`, Standard), damit für die
+Rekonstruktion Daten über Tage und Wochen vorliegen, auch wenn kein Mac verbunden ist:
+
+- **Niemand verbunden:** Der Relay hält selbst einen Tunnel und hört nur zu. Er bestätigt
+  empfangene Telegramme, wie das Protokoll es verlangt, sendet aber nie etwas auf den Bus.
+- **Du verbindest dich:** Bei deinem CONNECT baut er seinen Tunnel zuerst ab, dann geht dein
+  CONNECT durch (etwa 1 s Verzögerung). Was er dabei durchreicht, schreibt er weiter mit, auch
+  deine eigenen Sendungen (`"dir":"tx"`). 5 s nach deinem Trennen holt er sich den Tunnel zurück.
+- **Interface belegt** (z. B. ETS vor Ort): neuer Versuch jede Minute.
+- **Achtung:** Solange der Relay mitschneidet, ist der einzige Tunnel für **andere Clients im
+  Kundennetz** belegt (Visualisierung, ETS vor Ort). Braucht der Kunde ihn, `KNX_LOG="no"` setzen
+  und `systemctl restart ts-knx-relay`. Beim Stoppen gibt der Relay den Tunnel sauber frei.
+- Mitschnitt startet erst, wenn die Uhr per NTP gestellt ist (der Odroid hat keine Echtzeituhr).
+
+**Damit der Router lauffähig bleibt:**
+
+| Schutz | Standard | Einstellung |
+|---|---|---|
+| Größe aller Mitschnitte | 2000 MB, älteste Tage zuerst gelöscht | `KNX_LOG_MAX_MB` |
+| Freier Platz auf der eMMC | mind. 2000 MB, sonst ältere Tage löschen bzw. Pause | `KNX_LOG_MIN_FREE_MB` |
+| Aufbewahrung | 90 Tage, Vortage gzip-komprimiert | `KNX_LOG_KEEP_DAYS` |
+| Puffer im Speicher | höchstens 20 000 Zeilen, alle 5 s geschrieben | – |
+| Dienst | `MemoryMax=96M`, `CPUQuota=50%`, niedrige Priorität | Unit |
+
+Geht der Platz trotzdem aus oder schlägt Schreiben fehl, pausiert nur der Mitschnitt (und gibt
+den Tunnel frei); der Relay läuft weiter. Ins Journal (`/var/log` liegt im RAM, 20 MB) kommen nur
+Zustandswechsel, keine Telegramme.
+
+**Ablage und Format:** `/var/lib/ts-knx-relay/telegrams-JJJJ-MM-TT.jsonl` (Tag in UTC), Vortage
+als `.jsonl.gz`. Eine JSON-Zeile je Telegramm:
+
+```json
+{"ts":"2026-11-16T14:03:12.481Z","dir":"rx","via":"recorder","src":"1.1.17","dst":"3/1/61","apci":"GroupValueWrite","value":1,"cemi":"2900bce01111193d010081"}
+```
+
+- `dir`: `rx` vom Bus, `tx` von einem Client über den Relay gesendet
+- `via`: `recorder` (eigener Tunnel) oder `session` (durchgereicht während einer Client-Sitzung)
+- `apci`: `GroupValueWrite`/`Read`/`Response`; sonst der APCI-Code (`0x300` …) oder `tpci`
+- `value` bei Werten bis 6 Bit (DPT 1/2/3), sonst `data` als Hex; `cemi` ist das rohe Telegramm
+- Zeilen mit `event` markieren Lücken und Zustände: `recorder_recording`, `recorder_handed_over`,
+  `recorder_busy`, `recorder_lost`, `log_resumed` (mit `dropped`), `relay_started`/`_stopped`.
+  Fehlt in einem Zeitraum ein Telegramm, zeigen sie, ob wirklich nichts los war.
+
+Ein normaler Tunnel liefert Gruppentelegramme und Telegramme an das Interface selbst, nicht
+den Verkehr zwischen fremden Geräten an Einzeladressen (dafür bräuchte es den Busmonitor-Modus).
+
+Abholen (vom Mac, über die LAN-IP des Odroid):
+
+```bash
+rsync -av root@<lan-ip-odroid>:/var/lib/ts-knx-relay/ ./knx-log/
+```
+
+Lesen: `zcat -f knx-log/telegrams-*.jsonl* | jq -c 'select(.dst=="3/1/61")'`.
 
 ### Kein Multicast
 

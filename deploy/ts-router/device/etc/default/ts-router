@@ -22,3 +22,11 @@ WATCHDOG_REBOOT_AFTER_MIN="30"
 # support route-back: "auto" = find the interface by multicast search, an IP = use that
 # interface, empty = relay off. Clients then use the router's Tailscale IP as gateway.
 KNX_RELAY_TARGET="auto"
+
+# Bus log of ts-knx-relay (see README): "yes" or "no". While on, the relay holds the
+# interface's tunnel whenever no client of yours uses it.
+KNX_LOG="yes"
+# Delete days older than this; size cap of all log files; disk space to keep free (MB)
+KNX_LOG_KEEP_DAYS="90"
+KNX_LOG_MAX_MB="2000"
+KNX_LOG_MIN_FREE_MB="2000"

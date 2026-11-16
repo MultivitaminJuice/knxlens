@@ -12,10 +12,23 @@ listens on the router's Tailscale address and talks to the interface from its ow
   by 0.0.0.0:0, so the client keeps sending everything to the relay.
 - Each client address gets its own LAN socket; idle sessions are dropped.
 
+Bus log (optional, on by default): bus telegrams are written as JSON lines, one file per UTC day.
+- While no client holds a tunnel, the relay opens its own tunnel and only listens (it acknowledges
+  received frames as the protocol requires, but never sends a telegram to the bus).
+- When a client connects, the relay closes its own tunnel first (interfaces often have only one)
+  and logs the telegrams it passes through instead. Afterwards it takes the tunnel back.
+- The router must keep running: the log has a size cap and a minimum of free disk space, old days
+  are compressed and deleted, the write buffer is bounded, and the log pauses instead of failing.
+
 Configuration (environment, usually from /etc/default/ts-router):
-    KNX_RELAY_TARGET  "auto" (multicast search), an IP address, or empty (relay off)
-    KNX_RELAY_LISTEN  listen address; default: IPv4 address of tailscale0
-    KNX_RELAY_PORT    listen port, default 3671
+    KNX_RELAY_TARGET     "auto" (multicast search), an IP address, or empty (relay off)
+    KNX_RELAY_LISTEN     listen address; default: IPv4 address of tailscale0
+    KNX_RELAY_PORT       listen port, default 3671
+    KNX_LOG              "yes" (default) or "no"
+    KNX_LOG_DIR          default: $STATE_DIRECTORY or /var/lib/ts-knx-relay
+    KNX_LOG_KEEP_DAYS    delete days older than this, default 90
+    KNX_LOG_MAX_MB       size cap of all log files, default 2000
+    KNX_LOG_MIN_FREE_MB  keep at least this much disk space free, default 2000
 
 Standard library only.
 """
@@ -23,20 +36,29 @@ Standard library only.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import gzip
 import json
 import logging
 import os
+import shutil
+import signal
 import socket
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime
+from pathlib import Path
 
 log = logging.getLogger("ts-knx-relay")
 
 KNX_PORT = 3671
 MULTICAST_GROUP = "224.0.23.12"
 IDLE_TIMEOUT = 300.0  # seconds without traffic before a session is dropped
+TUNNEL_IDLE = 150.0  # a client tunnel without traffic for this long is considered gone
 DISCOVERY_MAX_AGE = 300.0  # re-run auto discovery for a new session after this many seconds
+MAX_SESSIONS = 8
+MAX_PENDING = 32  # frames buffered per client while its session is being opened
 
 SEARCH_REQUEST = 0x0201
 SEARCH_RESPONSE = 0x0202
@@ -44,10 +66,16 @@ DESCRIPTION_REQUEST = 0x0203
 CONNECT_REQUEST = 0x0205
 CONNECT_RESPONSE = 0x0206
 CONNECTIONSTATE_REQUEST = 0x0207
+CONNECTIONSTATE_RESPONSE = 0x0208
 DISCONNECT_REQUEST = 0x0209
 DISCONNECT_RESPONSE = 0x020A
 SEARCH_REQUEST_EXTENDED = 0x020B
 SEARCH_RESPONSE_EXTENDED = 0x020C
+TUNNELLING_REQUEST = 0x0420
+TUNNELLING_ACK = 0x0421
+
+L_DATA_REQ = 0x11
+L_DATA_IND = 0x29
 
 # Offsets of the HPAIs a client sends, which must point to the relay's LAN socket.
 REQUEST_HPAI_OFFSETS = {
@@ -59,6 +87,7 @@ REQUEST_HPAI_OFFSETS = {
     DISCONNECT_REQUEST: (8,),
 }
 ROUTE_BACK_HPAI = bytes([8, 1, 0, 0, 0, 0, 0, 0])
+CRI_TUNNEL_LINK_LAYER = bytes([4, 4, 2, 0])
 
 
 def service_type(frame: bytes) -> int | None:
@@ -66,6 +95,10 @@ def service_type(frame: bytes) -> int | None:
     if len(frame) < 6 or frame[0] != 0x06 or frame[1] != 0x10:
         return None
     return frame[2] << 8 | frame[3]
+
+
+def knx_frame(service: int, body: bytes) -> bytes:
+    return bytes([0x06, 0x10]) + service.to_bytes(2, "big") + (6 + len(body)).to_bytes(2, "big") + body
 
 
 def _set_hpai(frame: bytearray, offset: int, hpai: bytes) -> None:
@@ -115,6 +148,207 @@ def data_endpoint(frame: bytes) -> tuple[str, int] | None:
     port = int.from_bytes(frame[14:16], "big")
     return (ip, port) if ip != "0.0.0.0" else None
 
+
+def channel_of(frame: bytes) -> int | None:
+    """Communication channel id of a tunnel frame (core services: byte 6, tunnelling: byte 7)."""
+    st = service_type(frame)
+    if st in (CONNECTIONSTATE_RESPONSE, DISCONNECT_REQUEST, DISCONNECT_RESPONSE) and len(frame) >= 8:
+        return frame[6]
+    if st in (TUNNELLING_REQUEST, TUNNELLING_ACK) and len(frame) >= 10:
+        return frame[7]
+    return None
+
+
+# --- cEMI decoding for the log ------------------------------------------------------------------
+
+GROUP_APCI = {0: "GroupValueRead", 1: "GroupValueResponse", 2: "GroupValueWrite"}
+
+
+def individual_address(a: int) -> str:
+    return f"{a >> 12}.{(a >> 8) & 0x0F}.{a & 0xFF}"
+
+
+def group_address(a: int) -> str:
+    return f"{(a >> 11) & 0x1F}/{(a >> 8) & 0x07}/{a & 0xFF}"
+
+
+def decode_cemi(cemi: bytes) -> dict | None:
+    """L_Data frame → {code, src, dst, apci, value|data, cemi}; None if it is too short."""
+    if len(cemi) < 2:
+        return None
+    off = 2 + cemi[1]  # skip additional info
+    if len(cemi) < off + 7:
+        return None
+    ctrl2 = cemi[off + 1]
+    src = int.from_bytes(cemi[off + 2:off + 4], "big")
+    dst = int.from_bytes(cemi[off + 4:off + 6], "big")
+    npdu_len = cemi[off + 6]
+    apdu = cemi[off + 7:off + 8 + npdu_len]
+    group = bool(ctrl2 & 0x80)
+    rec: dict = {"code": cemi[0], "src": individual_address(src),
+                 "dst": group_address(dst) if group else individual_address(dst)}
+    if len(apdu) < 2:
+        rec["apci"] = "tpci"  # transport layer control frame (connect, ack, …)
+    else:
+        apci = (apdu[0] & 0x03) << 8 | apdu[1]
+        if group and apci >> 6 in GROUP_APCI:
+            rec["apci"] = GROUP_APCI[apci >> 6]
+            if npdu_len == 1:
+                if apci >> 6:
+                    rec["value"] = apdu[1] & 0x3F  # value of 6 bits or less (DPT 1, 2, 3 …)
+            else:
+                rec["data"] = apdu[2:].hex()
+        else:
+            rec["apci"] = f"0x{apci:03x}"
+            if len(apdu) > 2:
+                rec["data"] = apdu[2:].hex()
+    rec["cemi"] = cemi.hex()
+    return rec
+
+
+# --- bus log ------------------------------------------------------------------------------------
+
+def iso_utc(ts: float) -> str:
+    return datetime.fromtimestamp(ts, UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def utc_day(ts: float) -> str:
+    return datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%d")
+
+
+class TelegramLog:
+    """JSON lines, one file per UTC day; bounded in memory and on disk, pauses instead of failing."""
+
+    MAX_BUFFER = 20000  # lines; a few MB at most, even on a flooded bus
+    PREFIX = "telegrams-"
+
+    def __init__(self, directory: Path, keep_days: int = 90, max_bytes: int = 2000 << 20,
+                 min_free_bytes: int = 2000 << 20, clock=time.time) -> None:  # noqa: ANN001
+        self.directory = Path(directory)
+        self.keep_days = keep_days
+        self.max_bytes = max_bytes
+        self.min_free_bytes = min_free_bytes
+        self.clock = clock
+        self.buffer: list[tuple[str, str]] = []  # (day, line)
+        self.dropped = 0
+        self.paused: str | None = None
+
+    @property
+    def writable(self) -> bool:
+        return self.paused is None
+
+    def path(self, day: str) -> Path:
+        return self.directory / f"{self.PREFIX}{day}.jsonl"
+
+    def add(self, record: dict) -> None:
+        if self.paused is not None or len(self.buffer) >= self.MAX_BUFFER:
+            self.dropped += 1
+            return
+        now = self.clock()
+        line = json.dumps({"ts": iso_utc(now), **record}, separators=(",", ":"))
+        self.buffer.append((utc_day(now), line))
+
+    def event(self, name: str, **detail: object) -> None:
+        self.add({"event": name, **detail})
+
+    def flush(self) -> None:
+        if not self.buffer:
+            return
+        lines, self.buffer = self.buffer, []
+        by_day: dict[str, list[str]] = {}
+        for day, line in lines:
+            by_day.setdefault(day, []).append(line)
+        try:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            for day, day_lines in by_day.items():
+                with self.path(day).open("a", encoding="utf-8") as f:
+                    f.write("\n".join(day_lines) + "\n")
+        except OSError as e:
+            self.dropped += len(lines)
+            self.set_paused(f"write failed: {e}")
+
+    def files(self) -> list[Path]:
+        try:
+            return sorted(p for p in self.directory.glob(f"{self.PREFIX}*")
+                          if p.name.endswith((".jsonl", ".jsonl.gz")))
+        except OSError:
+            return []
+
+    def free_bytes(self) -> int:
+        st = os.statvfs(self.directory)
+        return st.f_bavail * st.f_frsize
+
+    @staticmethod
+    def _size(p: Path) -> int:
+        try:
+            return p.stat().st_size
+        except OSError:
+            return 0
+
+    @staticmethod
+    def compress(path: Path) -> None:
+        """day.jsonl → day.jsonl.gz; appends a gzip member if lines for that day arrived late."""
+        gz = path.with_name(path.name + ".gz")
+        tmp = gz.with_name(gz.name + ".tmp")
+        try:
+            if gz.exists():
+                with path.open("rb") as src, gzip.open(gz, "ab") as dst:
+                    shutil.copyfileobj(src, dst)
+            else:
+                with path.open("rb") as src, gzip.open(tmp, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                tmp.replace(gz)
+            path.unlink()
+        except OSError as e:
+            log.warning("compressing %s failed: %s", path.name, e)
+            tmp.unlink(missing_ok=True)
+
+    def housekeeping(self, now: float | None = None) -> str | None:
+        """Compress old days, delete expired and oldest files; reason to pause, or None. Runs in a thread."""
+        now = self.clock() if now is None else now
+        try:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            for tmp in self.directory.glob(f"{self.PREFIX}*.tmp"):
+                tmp.unlink(missing_ok=True)
+            today = self.path(utc_day(now)).name
+            for p in self.files():
+                if p.name.endswith(".jsonl") and p.name != today:
+                    self.compress(p)
+            cutoff = utc_day(now - self.keep_days * 86400)
+            for p in self.files():
+                if p.name[len(self.PREFIX):len(self.PREFIX) + 10] < cutoff:
+                    p.unlink(missing_ok=True)
+            while (used := sum(self._size(p) for p in self.files())) > self.max_bytes \
+                    or self.free_bytes() < self.min_free_bytes:
+                oldest = next((p for p in self.files() if p.name != today), None)
+                if oldest is None:
+                    return f"storage limit reached ({used >> 20} MB logged, {self.free_bytes() >> 20} MB free)"
+                log.info("deleting %s (storage limit: %d MB logged, %d MB free)", oldest.name, used >> 20,
+                         self.free_bytes() >> 20)
+                oldest.unlink(missing_ok=True)
+        except OSError as e:
+            return f"storage check failed: {e}"
+        return None
+
+    def set_paused(self, reason: str | None) -> None:
+        if reason == self.paused:
+            return
+        if reason is not None:
+            log.warning("bus log paused: %s", reason)
+            self.paused = reason
+        else:
+            log.info("bus log resumed (%d lines dropped while paused)", self.dropped)
+            self.paused = None
+            self.event("log_resumed", dropped=self.dropped)
+            self.dropped = 0
+
+
+def time_synced() -> bool:
+    """The Odroid has no RTC: timestamps are only meaningful once systemd-timesyncd has synced."""
+    return Path("/run/systemd/timesync/synchronized").exists()
+
+
+# --- network helpers ----------------------------------------------------------------------------
 
 def lan_ip_for(target_ip: str) -> str:
     """Own address on the route to the target (sends nothing)."""
@@ -189,6 +423,194 @@ class Target:
         return self.ip
 
 
+# --- own listen-only tunnel ---------------------------------------------------------------------
+
+class _Inbox(asyncio.DatagramProtocol):
+    MAX = 256
+
+    def __init__(self) -> None:
+        self.q: asyncio.Queue[tuple[bytes, tuple[str, int]]] = asyncio.Queue()
+
+    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+        if self.q.qsize() < self.MAX:
+            self.q.put_nowait((data, addr))
+
+
+class Recorder:
+    """Holds a listen-only tunnel to the interface while no client needs it."""
+
+    HEARTBEAT = 60.0
+    HEARTBEAT_TIMEOUT = 10.0
+    HEARTBEAT_MISSES = 3
+    QUIET = 5.0  # wait this long after a client before taking the tunnel back
+    RETRY_BUSY = 60.0
+    RETRY_ERROR = 15.0
+    POLL = 1.0
+
+    def __init__(self, target: Target, telegram_log: TelegramLog, busy_fn, lan_ip_fn=lan_ip_for,  # noqa: ANN001
+                 synced_fn=time_synced) -> None:  # noqa: ANN001
+        self.target = target
+        self.log = telegram_log
+        self.busy_fn = busy_fn
+        self.lan_ip_fn = lan_ip_fn
+        self.synced_fn = synced_fn
+        self.state = "idle"
+        self.hold_until = 0.0
+        self._yield = asyncio.Event()
+        self._free = asyncio.Event()
+        self._free.set()
+
+    @property
+    def holding(self) -> bool:
+        return not self._free.is_set()
+
+    def _set_state(self, state: str, **detail: object) -> None:
+        if state == self.state:
+            return  # e.g. "busy" every minute is logged once
+        self.state = state
+        log.info("recorder: %s %s", state, " ".join(f"{k}={v}" for k, v in detail.items()))
+        self.log.event(f"recorder_{state}", **detail)
+
+    async def release(self, timeout: float = 3.0) -> None:
+        """Give the tunnel back (a client wants it, or we stop) and wait until it is closed."""
+        self.hold_until = time.monotonic() + self.QUIET
+        if not self.holding:
+            return
+        self._yield.set()
+        try:
+            await asyncio.wait_for(self._free.wait(), timeout)
+        except TimeoutError:
+            log.warning("recorder did not release the tunnel within %.0f s", timeout)
+
+    def _may_start(self) -> bool:
+        if time.monotonic() < self.hold_until or self.busy_fn():
+            return False
+        if not self.synced_fn():
+            self._set_state("waiting_for_time_sync")
+            return False
+        if not self.log.writable:
+            self._set_state("log_paused")
+            return False
+        return True
+
+    async def run(self) -> None:
+        while True:
+            while not self._may_start():
+                await asyncio.sleep(self.POLL)
+            self._yield.clear()
+            self._free.clear()
+            try:
+                result = await self._tunnel()
+            except OSError as e:
+                self._set_state("error", reason=str(e))
+                result = "error"
+            finally:
+                self._free.set()
+            if result == "busy":
+                await asyncio.sleep(self.RETRY_BUSY)
+            elif result in ("error", "lost"):
+                await asyncio.sleep(self.RETRY_ERROR)
+
+    @staticmethod
+    async def _expect(inbox: _Inbox, service: int, timeout: float) -> bytes | None:
+        end = time.monotonic() + timeout
+        while (left := end - time.monotonic()) > 0:
+            try:
+                data, _ = await asyncio.wait_for(inbox.q.get(), left)
+            except TimeoutError:
+                return None
+            if service_type(data) == service:
+                return data
+        return None
+
+    async def _tunnel(self) -> str:
+        target_ip = await self.target.resolve()
+        if target_ip is None:
+            self._set_state("error", reason="no interface found")
+            return "error"
+        loop = asyncio.get_running_loop()
+        inbox = _Inbox()
+        transport, _ = await loop.create_datagram_endpoint(lambda: inbox, local_addr=(self.lan_ip_fn(target_ip), 0))
+        control = (target_ip, self.target.port)
+        hpai = udp_hpai(*transport.get_extra_info("sockname")[:2])
+        channel: int | None = None
+        try:
+            transport.sendto(knx_frame(CONNECT_REQUEST, hpai + hpai + CRI_TUNNEL_LINK_LAYER), control)
+            resp = await self._expect(inbox, CONNECT_RESPONSE, 5.0)
+            if resp is None or len(resp) < 8:
+                self._set_state("error", reason="no answer from interface")
+                return "error"
+            if resp[7] != 0:
+                self._set_state("busy", status=f"0x{resp[7]:02x}")
+                return "busy"
+            channel = resp[6]
+            data_ep = data_endpoint(resp) or control
+            own = individual_address(int.from_bytes(resp[18:20], "big")) if len(resp) >= 20 else None
+            self._set_state("recording", interface=target_ip, address=own)
+            result = await self._listen(transport, inbox, target_ip, control, data_ep, channel, hpai)
+            if result != "lost":
+                transport.sendto(knx_frame(DISCONNECT_REQUEST, bytes([channel, 0]) + hpai), control)
+                await self._expect(inbox, DISCONNECT_RESPONSE, 1.0)
+            channel = None
+            return result
+        finally:
+            if channel is not None:  # cancelled while connected: free the interface's only tunnel
+                with contextlib.suppress(OSError):
+                    transport.sendto(knx_frame(DISCONNECT_REQUEST, bytes([channel, 0]) + hpai), control)
+            transport.close()
+
+    async def _listen(self, transport, inbox: _Inbox, target_ip: str, control: tuple[str, int],  # noqa: ANN001
+                      data_ep: tuple[str, int], channel: int, hpai: bytes) -> str:
+        last_seq: int | None = None
+        hb_due = time.monotonic() + self.HEARTBEAT
+        hb_sent: float | None = None
+        misses = 0
+        while True:
+            if self._yield.is_set():
+                self._set_state("handed_over")
+                return "yield"
+            if not self.log.writable:
+                self._set_state("log_paused")
+                return "paused"
+            try:
+                data, addr = await asyncio.wait_for(inbox.q.get(), self.POLL)
+            except TimeoutError:
+                data, addr = None, None
+            if data is not None and addr[0] == target_ip and channel_of(data) == channel:
+                st = service_type(data)
+                if st == TUNNELLING_REQUEST:
+                    seq = data[8]
+                    transport.sendto(knx_frame(TUNNELLING_ACK, bytes([4, channel, seq, 0])), data_ep)
+                    if seq != last_seq:  # a repeated frame (our ack got lost) is logged once
+                        last_seq = seq
+                        self.record(data[10:])
+                elif st == CONNECTIONSTATE_RESPONSE:
+                    if data[7] != 0:
+                        self._set_state("lost", status=f"0x{data[7]:02x}")
+                        return "lost"
+                    hb_sent, misses = None, 0
+                elif st == DISCONNECT_REQUEST:
+                    transport.sendto(knx_frame(DISCONNECT_RESPONSE, bytes([channel, 0])), control)
+                    self._set_state("lost", reason="disconnected by interface")
+                    return "lost"
+            now = time.monotonic()
+            if hb_sent is not None and now - hb_sent > self.HEARTBEAT_TIMEOUT:
+                hb_sent, misses, hb_due = None, misses + 1, now
+                if misses >= self.HEARTBEAT_MISSES:
+                    self._set_state("lost", reason="no heartbeat answer")
+                    return "lost"
+            if hb_sent is None and now >= hb_due:
+                transport.sendto(knx_frame(CONNECTIONSTATE_REQUEST, bytes([channel, 0]) + hpai), control)
+                hb_sent, hb_due = now, now + self.HEARTBEAT
+
+    def record(self, cemi: bytes) -> None:
+        rec = decode_cemi(cemi)
+        if rec is not None and rec.pop("code") == L_DATA_IND:
+            self.log.add({"dir": "rx", "via": "recorder", **rec})
+
+
+# --- relay --------------------------------------------------------------------------------------
+
 class _Upstream(asyncio.DatagramProtocol):
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -209,6 +631,8 @@ class Session:
         self.transport: asyncio.DatagramTransport | None = None
         self.lan: tuple[str, int] | None = None
         self.last = time.monotonic()
+        self.tunnel = False  # the client holds (or is opening) a tunnel through this session
+        self.last_seq: dict[str, int] = {}
 
     async def open(self) -> None:
         loop = asyncio.get_running_loop()
@@ -220,6 +644,10 @@ class Session:
     def to_target(self, frame: bytes) -> None:
         self.last = time.monotonic()
         st = service_type(frame)
+        if st == CONNECT_REQUEST:
+            self.tunnel = True
+        elif st == TUNNELLING_REQUEST:
+            self.record(frame, "tx", L_DATA_REQ)
         dest = self.control if is_control(st) or self.data is None else self.data
         self.transport.sendto(rewrite_to_target(frame, *self.lan), dest)
 
@@ -227,11 +655,27 @@ class Session:
         if addr[0] != self.target_ip:
             return  # only the interface may talk to this socket
         self.last = time.monotonic()
+        st = service_type(frame)
         if (ep := data_endpoint(frame)) is not None:
             self.data = ep
+        if (st == CONNECT_RESPONSE and len(frame) >= 8 and frame[7] != 0) or st == DISCONNECT_REQUEST:
+            self.tunnel = False  # connect refused, or the interface dropped the tunnel
+        elif st == TUNNELLING_REQUEST:
+            self.record(frame, "rx", L_DATA_IND)
         self.relay.send_to_client(rewrite_to_client(frame), self.client)
-        if service_type(frame) == DISCONNECT_RESPONSE:
+        if st == DISCONNECT_RESPONSE:
             self.relay.close(self.client)
+
+    def record(self, frame: bytes, direction: str, code: int) -> None:
+        if self.relay.telegram_log is None or len(frame) < 10:
+            return
+        seq = frame[7] << 8 | frame[8]  # channel and sequence counter
+        if self.last_seq.get(direction) == seq:
+            return  # repeated because an ack got lost
+        self.last_seq[direction] = seq
+        rec = decode_cemi(frame[10:])
+        if rec is not None and rec.pop("code") == code:
+            self.relay.telegram_log.add({"dir": direction, "via": "session", **rec})
 
     def close(self) -> None:
         if self.transport is not None:
@@ -239,9 +683,12 @@ class Session:
 
 
 class Relay(asyncio.DatagramProtocol):
-    def __init__(self, target: Target, lan_ip_fn=lan_ip_for) -> None:  # noqa: ANN001
+    def __init__(self, target: Target, lan_ip_fn=lan_ip_for,  # noqa: ANN001
+                 telegram_log: TelegramLog | None = None) -> None:
         self.target = target
         self.lan_ip_for = lan_ip_fn
+        self.telegram_log = telegram_log
+        self.recorder: Recorder | None = None
         self.sessions: dict[tuple[str, int], Session] = {}
         self.pending: dict[tuple[str, int], list[bytes]] = {}
         self.transport: asyncio.DatagramTransport | None = None
@@ -249,25 +696,39 @@ class Relay(asyncio.DatagramProtocol):
     def connection_made(self, transport: asyncio.DatagramTransport) -> None:
         self.transport = transport
 
+    def tunnel_in_use(self) -> bool:
+        """A client holds a tunnel through the relay, or is about to open one."""
+        now = time.monotonic()
+        return bool(self.pending) or any(s.tunnel and now - s.last < TUNNEL_IDLE for s in self.sessions.values())
+
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        if service_type(data) is None:
+        st = service_type(data)
+        if st is None:
             return
-        if (session := self.sessions.get(addr)) is not None:
+        session = self.sessions.get(addr)
+        if addr in self.pending:
+            if len(self.pending[addr]) < MAX_PENDING:
+                self.pending[addr].append(data)  # session is still being opened
+        elif session is not None and st != CONNECT_REQUEST:
             session.to_target(data)
-        elif addr in self.pending:
-            self.pending[addr].append(data)  # session is still being opened
+        elif session is None and len(self.sessions) >= MAX_SESSIONS:
+            log.warning("too many sessions, dropping request from %s:%s", *addr)
         else:
             self.pending[addr] = [data]
             asyncio.get_running_loop().create_task(self._open(addr))
 
     async def _open(self, addr: tuple[str, int]) -> None:
         try:
-            target_ip = await self.target.resolve()
-            if target_ip is None:
-                return
-            session = Session(self, addr, target_ip)
-            await session.open()
-            self.sessions[addr] = session
+            session = self.sessions.get(addr)
+            if session is None:
+                target_ip = await self.target.resolve()
+                if target_ip is None:
+                    return
+                session = Session(self, addr, target_ip)
+                await session.open()
+                self.sessions[addr] = session
+            if self.recorder is not None and any(service_type(f) == CONNECT_REQUEST for f in self.pending.get(addr, [])):
+                await self.recorder.release()  # the interface may have only one tunnel
             for frame in self.pending.get(addr, []):
                 session.to_target(frame)
         except OSError as e:
@@ -290,17 +751,42 @@ class Relay(asyncio.DatagramProtocol):
             self.close(client)
 
 
-async def serve(listen: str, port: int, target: Target) -> None:
+async def serve(listen: str, port: int, target: Target, telegram_log: TelegramLog | None = None) -> None:
     loop = asyncio.get_running_loop()
-    relay = Relay(target)
+    relay = Relay(target, telegram_log=telegram_log)
     transport, _ = await loop.create_datagram_endpoint(lambda: relay, local_addr=(listen, port))
-    log.info("listening on %s:%s, target %s", listen, port, target.setting)
+    log.info("listening on %s:%s, target %s, bus log %s", listen, port, target.setting,
+             telegram_log.directory if telegram_log else "off")
+    stop = asyncio.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
+    recorder_task = None
+    if telegram_log is not None:
+        telegram_log.set_paused(await asyncio.to_thread(telegram_log.housekeeping))
+        telegram_log.event("relay_started")
+        relay.recorder = Recorder(target, telegram_log, relay.tunnel_in_use)
+        recorder_task = loop.create_task(relay.recorder.run())
+    ticks = 0
     try:
-        while True:
-            await asyncio.sleep(30)
-            relay.expire()
+        while not stop.is_set():
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(stop.wait(), 5)
+            ticks += 1
+            if telegram_log is not None:
+                telegram_log.flush()
+                if ticks % 12 == 0:  # every minute
+                    telegram_log.set_paused(await asyncio.to_thread(telegram_log.housekeeping))
+            if ticks % 6 == 0:
+                relay.expire()
     finally:
+        if relay.recorder is not None:
+            await relay.recorder.release()  # never leave the interface's only tunnel occupied
+            recorder_task.cancel()
+        if telegram_log is not None:
+            telegram_log.event("relay_stopped")
+            telegram_log.flush()
         transport.close()
+        log.info("stopped")
 
 
 async def wait_for_listen_address(configured: str) -> str:
@@ -310,6 +796,19 @@ async def wait_for_listen_address(configured: str) -> str:
         log.info("waiting for an IPv4 address on tailscale0")
         await asyncio.sleep(5)
     return ip
+
+
+def telegram_log_from_env() -> TelegramLog | None:
+    if os.environ.get("KNX_LOG", "yes").strip().lower() not in {"1", "yes", "true", "on"}:
+        return None
+    state = os.environ.get("STATE_DIRECTORY", "").split(":")[0]
+    directory = os.environ.get("KNX_LOG_DIR", "").strip() or state or "/var/lib/ts-knx-relay"
+    return TelegramLog(
+        Path(directory),
+        keep_days=int(os.environ.get("KNX_LOG_KEEP_DAYS", "90")),
+        max_bytes=int(os.environ.get("KNX_LOG_MAX_MB", "2000")) << 20,
+        min_free_bytes=int(os.environ.get("KNX_LOG_MIN_FREE_MB", "2000")) << 20,
+    )
 
 
 def main() -> int:
@@ -322,7 +821,7 @@ def main() -> int:
 
     async def run() -> None:
         listen = await wait_for_listen_address(os.environ.get("KNX_RELAY_LISTEN", "").strip())
-        await serve(listen, port, Target(setting))
+        await serve(listen, port, Target(setting), telegram_log_from_env())
 
     asyncio.run(run())
     return 0
