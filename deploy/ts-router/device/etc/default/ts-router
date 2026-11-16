@@ -17,3 +17,8 @@ ALLOW_NON_PRIVATE="no"
 
 # Neustart nach so vielen Minuten ohne Verbindung, 0 = nie
 WATCHDOG_REBOOT_AFTER_MIN="30"
+
+# KNXnet/IP relay on the Tailscale address (ts-knx-relay), for interfaces that do not
+# support route-back: "auto" = find the interface by multicast search, an IP = use that
+# interface, empty = relay off. Clients then use the router's Tailscale IP as gateway.
+KNX_RELAY_TARGET="auto"

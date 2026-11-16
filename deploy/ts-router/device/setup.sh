@@ -26,8 +26,9 @@ sysctl -q -p /etc/sysctl.d/99-tailscale.conf
 step "3/7 Skripte, Konfiguration und systemd-Units"
 install -m 0755 "$HERE/bin/ts-advertise-routes" /usr/local/sbin/ts-advertise-routes
 install -m 0755 "$HERE/bin/ts-watchdog" /usr/local/sbin/ts-watchdog
+install -m 0755 "$HERE/bin/ts-knx-relay" /usr/local/sbin/ts-knx-relay
 [ -e /etc/default/ts-router ] || install -m 0644 "$HERE/etc/default/ts-router" /etc/default/ts-router
-for u in ts-advertise-routes.service ts-advertise-routes.timer ts-watchdog.service ts-watchdog.timer; do
+for u in ts-advertise-routes.service ts-advertise-routes.timer ts-watchdog.service ts-watchdog.timer ts-knx-relay.service; do
   install -m 0644 "$HERE/systemd/$u" "/etc/systemd/system/$u"
 done
 install -d /etc/systemd/system/tailscaled.service.d
@@ -48,6 +49,9 @@ step "5/7 Dienste beim Boot aktivieren"
 systemctl daemon-reload
 systemctl enable --now tailscaled networkd-dispatcher
 systemctl enable --now ts-advertise-routes.timer ts-watchdog.timer
+# Restart picks up a new relay version on redeploy
+systemctl enable ts-knx-relay.service
+systemctl restart ts-knx-relay.service
 systemctl restart networkd-dispatcher
 
 step "6/7 Bei Tailscale anmelden"

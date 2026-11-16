@@ -20,6 +20,7 @@ Mac (knxlens) ──Tailscale──► ts-router (Odroid, eth0 per DHCP) ──L
 | `device/setup.sh` | Odroid | Tailscale installieren und einrichten (idempotent) |
 | `device/bin/ts-advertise-routes` | Odroid | Subnetz des Default-Interface erkennen und anbieten |
 | `device/bin/ts-watchdog` | Odroid | Verbindung prüfen, gestuft reparieren |
+| `device/bin/ts-knx-relay` | Odroid | KNXnet/IP-Relay auf der Tailscale-Adresse, für Interfaces ohne Route-Back |
 | `device/etc/default/ts-router` | Odroid | Einstellungen (feste Routen, 4via6, Watchdog) |
 | `device/systemd/*` | Odroid | Timer, Services, Restart- und Watchdog-Drop-ins |
 | `tools/knx-probe.py` | Mac | KNXnet/IP-Interface per Unicast abfragen (Test für UDP 3671) |
@@ -234,6 +235,39 @@ Odroid, nicht die 100.x-Adresse des Mac. Für KNXnet/IP-Tunneling heißt das:
   den Weg über Tailscale selbst; erzwingen ist nur nötig, wenn das nicht greift.
 - Interfaces, die Tunnel nur aus dem eigenen Subnetz annehmen, sind kein Problem: Wegen SNAT
   kommt die Anfrage aus dem eigenen Subnetz.
+
+### Interfaces ohne Route-Back: `ts-knx-relay`
+
+Ältere Interfaces (Beispiel: Siemens-Interface beim ersten Einsatz, KNXnet/IP 1.0, nur
+Tunneling v1) ignorieren Anfragen mit HPAI `0.0.0.0:0`. Durch das Source-NAT geht aber nur
+Route-Back – die Verbindung über die Subnetz-Route scheitert dann immer, egal wie der Client
+eingestellt ist. Dafür läuft auf dem Odroid ein KNXnet/IP-Relay:
+
+```
+knxlens -g 100.122.15.41 ──Route-Back──► ts-knx-relay 100.x:3671 ──HPAI = 192.168.x.y:port──► Interface
+```
+
+- Lauscht **nur auf der Tailscale-Adresse** des Odroid (UDP 3671), im Kundennetz nicht erreichbar.
+- Ersetzt in Anfragen (DESCRIPTION, CONNECT, CONNECTIONSTATE, DISCONNECT, SEARCH) jede
+  Rückadresse durch einen eigenen LAN-Socket je Client. In CONNECT_RESPONSE und
+  SEARCH_RESPONSE ersetzt es die Endpunkte des Interface durch `0.0.0.0:0`, damit der Client
+  weiter mit dem Relay spricht. Tunneling-Telegramme gehen unverändert durch.
+- Ziel: `KNX_RELAY_TARGET` in `/etc/default/ts-router` – `auto` (Standard, Multicast-Suche
+  im LAN, nach 5 Min. erneut für neue Sitzungen), eine feste IP oder leer (Relay aus).
+- Sitzungen verfallen nach 5 Min. ohne Verkehr.
+- In knxlens als Gateway die **Tailscale-IP des Odroid** eintragen. Route-Back schaltet sich
+  automatisch ein. Subnetz-Kollisionen spielen dabei keine Rolle, eine Subnetz-Route ist für
+  KNX nicht einmal nötig.
+- Log: `journalctl -u ts-knx-relay` (gefundenes Interface, Sitzungen).
+
+Auch neuere Interfaces lassen sich über den Relay ansprechen; nötig ist er nur für die ohne
+Route-Back. Prüfen: `knx-probe.py <interface-ip>` vom Mac – keine Antwort, aber Antwort auf
+`knx-probe.py <tailscale-ip-des-odroid>` heißt: Relay verwenden.
+
+**Nur ein Tunnel:** Solche Interfaces haben oft genau einen Tunnel. Antwortet es auf CONNECT
+mit `E_NO_MORE_CONNECTIONS`, ist der Tunnel belegt – durch einen anderen Client im Kundennetz
+(Visualisierung, Server) oder einen hängengebliebenen Tunnel, der nach 120 s ohne
+Lebenszeichen verfällt.
 
 ### Kein Multicast
 

@@ -1,0 +1,332 @@
+#!/usr/bin/env python3
+"""KNXnet/IP relay for ts-router: lets clients behind Tailscale reach an interface without route-back.
+
+Behind the subnet router, Tailscale source-NATs client traffic, so a client can only be answered
+via route-back (HPAI 0.0.0.0:0). Older interfaces ignore requests with such an HPAI. This relay
+listens on the router's Tailscale address and talks to the interface from its own LAN address:
+
+    client --(route-back)--> relay 100.x:3671 --(HPAI = relay LAN ip:port)--> interface
+
+- Towards the interface, every HPAI in a request is replaced by the session's LAN socket.
+- Towards the client, the server endpoints in CONNECT_RESPONSE and SEARCH_RESPONSE are replaced
+  by 0.0.0.0:0, so the client keeps sending everything to the relay.
+- Each client address gets its own LAN socket; idle sessions are dropped.
+
+Configuration (environment, usually from /etc/default/ts-router):
+    KNX_RELAY_TARGET  "auto" (multicast search), an IP address, or empty (relay off)
+    KNX_RELAY_LISTEN  listen address; default: IPv4 address of tailscale0
+    KNX_RELAY_PORT    listen port, default 3671
+
+Standard library only.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import socket
+import subprocess
+import sys
+import time
+
+log = logging.getLogger("ts-knx-relay")
+
+KNX_PORT = 3671
+MULTICAST_GROUP = "224.0.23.12"
+IDLE_TIMEOUT = 300.0  # seconds without traffic before a session is dropped
+DISCOVERY_MAX_AGE = 300.0  # re-run auto discovery for a new session after this many seconds
+
+SEARCH_REQUEST = 0x0201
+SEARCH_RESPONSE = 0x0202
+DESCRIPTION_REQUEST = 0x0203
+CONNECT_REQUEST = 0x0205
+CONNECT_RESPONSE = 0x0206
+CONNECTIONSTATE_REQUEST = 0x0207
+DISCONNECT_REQUEST = 0x0209
+DISCONNECT_RESPONSE = 0x020A
+SEARCH_REQUEST_EXTENDED = 0x020B
+SEARCH_RESPONSE_EXTENDED = 0x020C
+
+# Offsets of the HPAIs a client sends, which must point to the relay's LAN socket.
+REQUEST_HPAI_OFFSETS = {
+    SEARCH_REQUEST: (6,),
+    SEARCH_REQUEST_EXTENDED: (6,),
+    DESCRIPTION_REQUEST: (6,),
+    CONNECT_REQUEST: (6, 14),  # control endpoint, data endpoint
+    CONNECTIONSTATE_REQUEST: (8,),
+    DISCONNECT_REQUEST: (8,),
+}
+ROUTE_BACK_HPAI = bytes([8, 1, 0, 0, 0, 0, 0, 0])
+
+
+def service_type(frame: bytes) -> int | None:
+    """Service type of a KNXnet/IP frame, None if it is not one."""
+    if len(frame) < 6 or frame[0] != 0x06 or frame[1] != 0x10:
+        return None
+    return frame[2] << 8 | frame[3]
+
+
+def _set_hpai(frame: bytearray, offset: int, hpai: bytes) -> None:
+    # Only UDP HPAIs (length 8, protocol 0x01) are rewritten; anything else stays untouched.
+    if len(frame) >= offset + 8 and frame[offset] == 8 and frame[offset + 1] == 1:
+        frame[offset:offset + 8] = hpai
+
+
+def udp_hpai(ip: str, port: int) -> bytes:
+    return bytes([8, 1]) + socket.inet_aton(ip) + port.to_bytes(2, "big")
+
+
+def rewrite_to_target(frame: bytes, ip: str, port: int) -> bytes:
+    """Client → interface: point every HPAI of a request to the relay's LAN socket."""
+    offsets = REQUEST_HPAI_OFFSETS.get(service_type(frame) or 0)
+    if not offsets:
+        return frame
+    out = bytearray(frame)
+    for offset in offsets:
+        _set_hpai(out, offset, udp_hpai(ip, port))
+    return bytes(out)
+
+
+def rewrite_to_client(frame: bytes) -> bytes:
+    """Interface → client: hide the interface's endpoints so the client keeps talking to the relay."""
+    st = service_type(frame)
+    out = bytearray(frame)
+    if st == CONNECT_RESPONSE and len(frame) >= 16 and frame[7] == 0:  # status E_NO_ERROR
+        _set_hpai(out, 8, ROUTE_BACK_HPAI)
+    elif st in (SEARCH_RESPONSE, SEARCH_RESPONSE_EXTENDED):
+        _set_hpai(out, 6, ROUTE_BACK_HPAI)
+    elif st == DISCONNECT_REQUEST:
+        _set_hpai(out, 8, ROUTE_BACK_HPAI)
+    return bytes(out)
+
+
+def is_control(st: int | None) -> bool:
+    """Core services (0x02xx) go to the control endpoint, tunnelling/config (0x03xx/0x04xx) to the data endpoint."""
+    return st is not None and st >> 8 == 0x02
+
+
+def data_endpoint(frame: bytes) -> tuple[str, int] | None:
+    """Interface's data endpoint from a successful CONNECT_RESPONSE."""
+    if service_type(frame) != CONNECT_RESPONSE or len(frame) < 16 or frame[7] != 0:
+        return None
+    ip = socket.inet_ntoa(frame[10:14])
+    port = int.from_bytes(frame[14:16], "big")
+    return (ip, port) if ip != "0.0.0.0" else None
+
+
+def lan_ip_for(target_ip: str) -> str:
+    """Own address on the route to the target (sends nothing)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.connect((target_ip, KNX_PORT))
+        return s.getsockname()[0]
+
+
+def default_lan_ip() -> str | None:
+    try:
+        return lan_ip_for(MULTICAST_GROUP)
+    except OSError:
+        return None
+
+
+def discover(timeout: float = 3.0) -> str | None:
+    """Multicast SEARCH_REQUEST in the local LAN; IP of the first interface that answers."""
+    local = default_lan_ip()
+    if local is None:
+        return None
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(local))
+        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
+        s.bind((local, 0))
+        s.settimeout(0.5)
+        hpai = udp_hpai(local, s.getsockname()[1])
+        s.sendto(bytes([0x06, 0x10, 0x02, 0x01, 0x00, 0x0E]) + hpai, (MULTICAST_GROUP, KNX_PORT))
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            try:
+                data, addr = s.recvfrom(1024)
+            except TimeoutError:
+                continue
+            if service_type(data) == SEARCH_RESPONSE:
+                return addr[0]
+    return None
+
+
+def tailscale_ipv4() -> str | None:
+    try:
+        out = subprocess.run(["ip", "-4", "-j", "addr", "show", "dev", "tailscale0"],
+                             capture_output=True, text=True, check=True).stdout
+        for link in json.loads(out):
+            for info in link.get("addr_info", []):
+                return info["local"]
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError):
+        pass
+    return None
+
+
+class Target:
+    """Where the interface is: fixed, or found by multicast search (re-checked when it got old)."""
+
+    def __init__(self, setting: str, port: int = KNX_PORT, discover_fn=discover) -> None:  # noqa: ANN001
+        self.setting = setting.strip()
+        self.port = port
+        self.discover_fn = discover_fn
+        self.ip: str | None = None if self.setting == "auto" else self.setting
+        self.found_at = 0.0
+
+    async def resolve(self) -> str | None:
+        if self.setting != "auto":
+            return self.ip
+        if self.ip is None or time.monotonic() - self.found_at > DISCOVERY_MAX_AGE:
+            ip = await asyncio.to_thread(self.discover_fn)
+            if ip and ip != self.ip:
+                log.info("KNXnet/IP interface found: %s", ip)
+            if ip:
+                self.ip, self.found_at = ip, time.monotonic()
+            elif self.ip is None:
+                log.warning("no KNXnet/IP interface found in the LAN")
+        return self.ip
+
+
+class _Upstream(asyncio.DatagramProtocol):
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+        self.session.from_target(data, addr)
+
+
+class Session:
+    """One client address and its own LAN socket towards the interface."""
+
+    def __init__(self, relay: Relay, client: tuple[str, int], target_ip: str) -> None:
+        self.relay = relay
+        self.client = client
+        self.target_ip = target_ip
+        self.control = (target_ip, relay.target.port)
+        self.data: tuple[str, int] | None = None
+        self.transport: asyncio.DatagramTransport | None = None
+        self.lan: tuple[str, int] | None = None
+        self.last = time.monotonic()
+
+    async def open(self) -> None:
+        loop = asyncio.get_running_loop()
+        local_ip = self.relay.lan_ip_for(self.target_ip)
+        self.transport, _ = await loop.create_datagram_endpoint(lambda: _Upstream(self), local_addr=(local_ip, 0))
+        self.lan = self.transport.get_extra_info("sockname")[:2]
+        log.info("session %s:%s via %s:%s -> %s", *self.client, *self.lan, self.target_ip)
+
+    def to_target(self, frame: bytes) -> None:
+        self.last = time.monotonic()
+        st = service_type(frame)
+        dest = self.control if is_control(st) or self.data is None else self.data
+        self.transport.sendto(rewrite_to_target(frame, *self.lan), dest)
+
+    def from_target(self, frame: bytes, addr: tuple[str, int]) -> None:
+        if addr[0] != self.target_ip:
+            return  # only the interface may talk to this socket
+        self.last = time.monotonic()
+        if (ep := data_endpoint(frame)) is not None:
+            self.data = ep
+        self.relay.send_to_client(rewrite_to_client(frame), self.client)
+        if service_type(frame) == DISCONNECT_RESPONSE:
+            self.relay.close(self.client)
+
+    def close(self) -> None:
+        if self.transport is not None:
+            self.transport.close()
+
+
+class Relay(asyncio.DatagramProtocol):
+    def __init__(self, target: Target, lan_ip_fn=lan_ip_for) -> None:  # noqa: ANN001
+        self.target = target
+        self.lan_ip_for = lan_ip_fn
+        self.sessions: dict[tuple[str, int], Session] = {}
+        self.pending: dict[tuple[str, int], list[bytes]] = {}
+        self.transport: asyncio.DatagramTransport | None = None
+
+    def connection_made(self, transport: asyncio.DatagramTransport) -> None:
+        self.transport = transport
+
+    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+        if service_type(data) is None:
+            return
+        if (session := self.sessions.get(addr)) is not None:
+            session.to_target(data)
+        elif addr in self.pending:
+            self.pending[addr].append(data)  # session is still being opened
+        else:
+            self.pending[addr] = [data]
+            asyncio.get_running_loop().create_task(self._open(addr))
+
+    async def _open(self, addr: tuple[str, int]) -> None:
+        try:
+            target_ip = await self.target.resolve()
+            if target_ip is None:
+                return
+            session = Session(self, addr, target_ip)
+            await session.open()
+            self.sessions[addr] = session
+            for frame in self.pending.get(addr, []):
+                session.to_target(frame)
+        except OSError as e:
+            log.warning("session %s:%s failed: %s", *addr, e)
+        finally:
+            self.pending.pop(addr, None)
+
+    def send_to_client(self, frame: bytes, client: tuple[str, int]) -> None:
+        if self.transport is not None:
+            self.transport.sendto(frame, client)
+
+    def close(self, client: tuple[str, int]) -> None:
+        if (session := self.sessions.pop(client, None)) is not None:
+            session.close()
+            log.info("session %s:%s closed", *client)
+
+    def expire(self, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        for client in [c for c, s in self.sessions.items() if now - s.last > IDLE_TIMEOUT]:
+            self.close(client)
+
+
+async def serve(listen: str, port: int, target: Target) -> None:
+    loop = asyncio.get_running_loop()
+    relay = Relay(target)
+    transport, _ = await loop.create_datagram_endpoint(lambda: relay, local_addr=(listen, port))
+    log.info("listening on %s:%s, target %s", listen, port, target.setting)
+    try:
+        while True:
+            await asyncio.sleep(30)
+            relay.expire()
+    finally:
+        transport.close()
+
+
+async def wait_for_listen_address(configured: str) -> str:
+    if configured:
+        return configured
+    while (ip := tailscale_ipv4()) is None:
+        log.info("waiting for an IPv4 address on tailscale0")
+        await asyncio.sleep(5)
+    return ip
+
+
+def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
+    setting = os.environ.get("KNX_RELAY_TARGET", "auto").strip()
+    if not setting:
+        log.info("KNX_RELAY_TARGET is empty, relay disabled")
+        return 0
+    port = int(os.environ.get("KNX_RELAY_PORT", str(KNX_PORT)))
+
+    async def run() -> None:
+        listen = await wait_for_listen_address(os.environ.get("KNX_RELAY_LISTEN", "").strip())
+        await serve(listen, port, Target(setting))
+
+    asyncio.run(run())
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

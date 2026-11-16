@@ -1,0 +1,19 @@
+[Unit]
+Description=KNXnet/IP relay on the Tailscale address (for interfaces without route-back)
+After=tailscaled.service network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=-/etc/default/ts-router
+ExecStart=/usr/local/sbin/ts-knx-relay
+# Exit 0 means "disabled by configuration" and stays stopped; crashes are restarted.
+Restart=on-failure
+RestartSec=5
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
