@@ -323,7 +323,13 @@ Abholen (vom Mac, über die LAN-IP des Odroid):
 rsync -av root@<lan-ip-odroid>:/var/lib/ts-knx-relay/ ./knx-log/
 ```
 
-Lesen: `zcat -f knx-log/telegrams-*.jsonl* | jq -c 'select(.dst=="3/1/61")'`.
+Lesen: `gzip -dcf knx-log/telegrams-*.jsonl* | jq -c 'select(.dst=="3/1/61")'`
+(`gzip -dcf`, nicht `zcat`: das macOS-`zcat` liest keine `.gz`).
+
+Nach Mitternacht komprimiert der Router den Vortag. Eine früher abgeholte `.jsonl` desselben
+Tages bleibt lokal liegen und doppelt dann die Telegramme. Entweder löschen oder mit
+`rsync -av --delete …` abholen (löscht lokal aber auch Tage, die der Router nach
+`KNX_LOG_KEEP_DAYS` entfernt hat).
 
 ### Kein Multicast
 
