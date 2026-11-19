@@ -1,0 +1,24 @@
+services:
+  knx-logger:
+    build:
+      context: ..
+      dockerfile: knx-logger/Dockerfile
+    container_name: knx-logger
+    restart: unless-stopped
+    # Host network: the tunnel tells the interface the host's LAN address (HPAI),
+    # and "auto" finds the interface by multicast search.
+    network_mode: host
+    environment:
+      KNX_RELAY_TARGET: ${KNX_TARGET:-auto}
+      KNX_LOG_KEEP_DAYS: ${KNX_LOG_KEEP_DAYS:-730}
+      KNX_LOG_MAX_MB: ${KNX_LOG_MAX_MB:-5000}
+      KNX_LOG_MIN_FREE_MB: ${KNX_LOG_MIN_FREE_MB:-2000}
+    volumes:
+      # Named volume by default (survives redeploys, e.g. Portainer Git stacks);
+      # set KNX_DATA to a host path for a bind mount instead (owner uid 10001).
+      - ${KNX_DATA:-knx-logger-data}:/data
+    # On stop the logger closes its tunnel cleanly; give it a few seconds.
+    stop_grace_period: 15s
+
+volumes:
+  knx-logger-data:

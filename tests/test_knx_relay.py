@@ -483,3 +483,43 @@ def test_recorder_waits_when_interface_busy_or_clock_unsynced(tmp_path, monkeypa
             ctrl_t.close()
 
     asyncio.run(run())
+
+
+def test_time_sync_check_can_be_switched_off(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr(relay.Path, "exists", lambda self: False)
+    monkeypatch.delenv("KNX_REQUIRE_TIME_SYNC", raising=False)
+    assert not relay.time_synced()
+    monkeypatch.setenv("KNX_REQUIRE_TIME_SYNC", "no")
+    assert relay.time_synced()
+
+
+def test_logger_only_without_relay(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    """KNX_RELAY_LISTEN=off: serve() opens no listen socket, the recorder still logs the bus."""
+    monkeypatch.setattr(relay.Recorder, "POLL", 0.05)
+    monkeypatch.setenv("KNX_REQUIRE_TIME_SYNC", "no")
+
+    async def run() -> None:
+        loop = asyncio.get_running_loop()
+        iface = SingleTunnelInterface()
+        ctrl_t, _ = await loop.create_datagram_endpoint(lambda: iface, local_addr=("127.0.0.1", 0))
+        iface.data_t, _ = await loop.create_datagram_endpoint(lambda: InterfaceData(iface), local_addr=("127.0.0.1", 0))
+        iface.data_port = iface.data_t.get_extra_info("sockname")[1]
+        target = relay.Target("127.0.0.1", port=ctrl_t.get_extra_info("sockname")[1])
+        tl = relay.TelegramLog(tmp_path)
+        task = loop.create_task(relay.serve(None, 0, target, tl))
+        try:
+            await until(lambda: iface.owner is not None)
+            iface.indicate(cemi(0x29, 0x1111, 0x193D, bytes([0x00, 0x81])))
+            await until(lambda: len(iface.acks) == 1)
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert iface.owner is None  # the tunnel was given back on stop
+            iface.data_t.close()
+            ctrl_t.close()
+
+    asyncio.run(run())
+    lines = [json.loads(line) for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines()]
+    assert [x["dst"] for x in lines if "dst" in x] == ["3/1/61"]
+    assert [x["event"] for x in lines if "event" in x][-1] == "relay_stopped"

@@ -22,8 +22,11 @@ Bus log (optional, on by default): bus telegrams are written as JSON lines, one 
 
 Configuration (environment, usually from /etc/default/ts-router):
     KNX_RELAY_TARGET     "auto" (multicast search), an IP address, or empty (relay off)
-    KNX_RELAY_LISTEN     listen address; default: IPv4 address of tailscale0
+    KNX_RELAY_LISTEN     listen address; default: IPv4 address of tailscale0;
+                         "off": no relay, only the bus log (standalone logger, e.g. in Docker)
     KNX_RELAY_PORT       listen port, default 3671
+    KNX_REQUIRE_TIME_SYNC "yes" (default): log only once systemd-timesyncd has synced;
+                         "no" where the clock is trusted (host with RTC, container)
     KNX_LOG              "yes" (default) or "no"
     KNX_LOG_DIR          default: $STATE_DIRECTORY or /var/lib/ts-knx-relay
     KNX_LOG_KEEP_DAYS    delete days older than this, default 90
@@ -345,7 +348,14 @@ class TelegramLog:
 
 def time_synced() -> bool:
     """The Odroid has no RTC: timestamps are only meaningful once systemd-timesyncd has synced."""
+    if not env_flag("KNX_REQUIRE_TIME_SYNC", default=True):
+        return True
     return Path("/run/systemd/timesync/synchronized").exists()
+
+
+def env_flag(name: str, default: bool) -> bool:
+    value = os.environ.get(name, "").strip().lower()
+    return default if not value else value in {"1", "yes", "true", "on"}
 
 
 # --- network helpers ----------------------------------------------------------------------------
@@ -751,12 +761,15 @@ class Relay(asyncio.DatagramProtocol):
             self.close(client)
 
 
-async def serve(listen: str, port: int, target: Target, telegram_log: TelegramLog | None = None) -> None:
+async def serve(listen: str | None, port: int, target: Target, telegram_log: TelegramLog | None = None) -> None:
+    """Relay on listen:port; with listen None only the bus log runs (no client can connect)."""
     loop = asyncio.get_running_loop()
     relay = Relay(target, telegram_log=telegram_log)
-    transport, _ = await loop.create_datagram_endpoint(lambda: relay, local_addr=(listen, port))
-    log.info("listening on %s:%s, target %s, bus log %s", listen, port, target.setting,
-             telegram_log.directory if telegram_log else "off")
+    transport = None
+    if listen is not None:
+        transport, _ = await loop.create_datagram_endpoint(lambda: relay, local_addr=(listen, port))
+    log.info("%s, target %s, bus log %s", f"listening on {listen}:{port}" if listen else "relay off",
+             target.setting, telegram_log.directory if telegram_log else "off")
     stop = asyncio.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
@@ -785,7 +798,8 @@ async def serve(listen: str, port: int, target: Target, telegram_log: TelegramLo
         if telegram_log is not None:
             telegram_log.event("relay_stopped")
             telegram_log.flush()
-        transport.close()
+        if transport is not None:
+            transport.close()
         log.info("stopped")
 
 
@@ -819,9 +833,15 @@ def main() -> int:
         return 0
     port = int(os.environ.get("KNX_RELAY_PORT", str(KNX_PORT)))
 
+    configured = os.environ.get("KNX_RELAY_LISTEN", "").strip()
+    telegram_log = telegram_log_from_env()
+    if configured.lower() == "off" and telegram_log is None:
+        log.info("KNX_RELAY_LISTEN=off and KNX_LOG=no, nothing to do")
+        return 0
+
     async def run() -> None:
-        listen = await wait_for_listen_address(os.environ.get("KNX_RELAY_LISTEN", "").strip())
-        await serve(listen, port, Target(setting), telegram_log_from_env())
+        listen = None if configured.lower() == "off" else await wait_for_listen_address(configured)
+        await serve(listen, port, Target(setting), telegram_log)
 
     asyncio.run(run())
     return 0
